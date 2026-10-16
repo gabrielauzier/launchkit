@@ -54,7 +54,7 @@ Toca `backend/scripts/` (script novo), `backend/tests/` (um teste novo), `.githu
 ### S1 - Contrato congelado · 9 files · 47 KB · ~12k (+ libs ~4k) = ~16k
 
 **C1** - `python backend/scripts/export_openapi.py` grava `contracts/openapi.json` com as 61 operações HTTP do Python (52 em `backend/app/api/`, 8 do fastapi-users, 1 `GET /api/health`)
-Proof: `backend/.venv`… `.venv/bin/python -m pytest backend/tests/test_export_openapi.py::test_exported_file_lists_all_61_operations`
+Proof: `.venv/bin/python -m pytest backend/tests/test_export_openapi.py::test_exported_file_lists_all_61_operations`
 Proof: `.venv/bin/python -m pytest backend/tests/test_export_openapi.py::test_operations_split_52_8_1` (agrupa `app.routes` por módulo do endpoint: `app.api.*` = 52, `fastapi_users.*` = 8, `app.main` = 1)
 
 **C2** - Se `contracts/openapi.json` difere da exportação atual, o job `contract-drift` do CI falha
