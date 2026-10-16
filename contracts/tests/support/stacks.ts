@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { inject } from 'vitest'
 import {
   LOGS_DIR,
   REPO_ROOT,
@@ -147,4 +148,16 @@ export async function runUntilExit(
     })
   })
   return { code, output: output() }
+}
+
+/** Starts another instance of the stack under test with some settings changed. */
+export async function startSubject(overrides: Record<string, string> = {}): Promise<RunningStack> {
+  return startStack(inject('stack'), overrides)
+}
+
+export async function runSubjectUntilExit(
+  overrides: Record<string, string>,
+  timeoutMs?: number,
+): Promise<StackExit> {
+  return runUntilExit(inject('stack'), overrides, timeoutMs)
 }

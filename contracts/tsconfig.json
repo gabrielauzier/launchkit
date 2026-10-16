@@ -8,7 +8,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "lib": ["ES2023"]
+    "lib": ["ES2023", "DOM"]
   },
   "include": ["tests", "scripts", "vitest.config.ts"]
 }

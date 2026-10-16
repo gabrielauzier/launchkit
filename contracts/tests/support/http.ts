@@ -82,7 +82,7 @@ export const peer = () => {
 let userCounter = 0
 export function uniqueEmail(label = 'user'): string {
   userCounter += 1
-  return `${label}-${Date.now().toString(36)}-${userCounter}@contract.test`
+  return `${label}-${Date.now().toString(36)}-${userCounter}@example.com`
 }
 
 export const PASSWORD = 'contract-pass-123'
@@ -108,4 +108,16 @@ export async function registerUser(
   const session = await login(api, email, password)
   if (session.status !== 200) throw new Error(`login failed: ${session.status} ${session.text}`)
   return { email, password, id: created.json.id, token: session.json.access_token }
+}
+
+export const ADMIN_PASSWORD = 'contract-admin-123'
+
+/** Creates the instance administrator through the setup endpoint (users must be empty). */
+export async function bootstrapAdmin(api: Api): Promise<{ email: string; password: string; token: string }> {
+  const email = uniqueEmail('admin')
+  trackSecret(ADMIN_PASSWORD)
+  const reply = await api.post('/api/setup/create-admin', { json: { email, password: ADMIN_PASSWORD } })
+  if (reply.status !== 200) throw new Error(`create-admin failed: ${reply.status} ${reply.text}`)
+  trackSecret(reply.json.access_token)
+  return { email, password: ADMIN_PASSWORD, token: reply.json.access_token }
 }
