@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import type { AxiosError } from 'axios'
 
 import LoginPage from '@/pages/login'
-import { renderWithProviders, t } from '@/test/utils'
+import { i18n, renderWithProviders, t } from '@/test/utils'
 import type { LaunchkitApi } from '@/lib/platform'
 
 const navigate = vi.hoisted(() => vi.fn())
@@ -279,5 +279,79 @@ describe('LoginPage', () => {
     expect(
       screen.getByRole('button', { name: t('auth.login') }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('LoginPage SSO', () => {
+  const SSO_URL = 'https://srv.example.com/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback'
+
+  function installDesktopApi(serverUrl: string | null) {
+    const desktopApi: LaunchkitApi = {
+      isDesktop: true,
+      platform: 'darwin',
+      appVersion: '0.1.0',
+      getServerUrl: vi.fn(async () => serverUrl),
+      setServerUrl: vi.fn(),
+      openExternal: vi.fn(async () => {}),
+      onUpdateAvailable: vi.fn(() => () => {}),
+      installUpdate: vi.fn(),
+    }
+    Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
+    return desktopApi
+  }
+
+  function stubLocation() {
+    const original = window.location
+    const stub = { ...original, href: 'app://launchkit/login' } as Location
+    Object.defineProperty(window, 'location', { value: stub, configurable: true, writable: true })
+    return { stub, restore: () => Object.defineProperty(window, 'location', { value: original, configurable: true, writable: true }) }
+  }
+
+  beforeEach(() => {
+    api.auth.oidcConfig.mockResolvedValue({ enabled: true, provider_name: 'Pocket ID', local_auth_enabled: true })
+  })
+
+  it('starts SSO in the system browser on desktop', async () => {
+    const desktopApi = installDesktopApi('https://srv.example.com')
+    const location = stubLocation()
+    try {
+      const { user } = await renderLogin()
+      await user.click(await screen.findByRole('button', { name: t('auth.loginWithProvider', { provider: 'Pocket ID' }) }))
+
+      await waitFor(() => expect(desktopApi.openExternal).toHaveBeenCalledTimes(1))
+      expect(desktopApi.openExternal).toHaveBeenCalledWith(SSO_URL)
+      expect(location.stub.href).toBe('app://launchkit/login')
+    } finally {
+      location.restore()
+      Reflect.deleteProperty(window, 'launchkit')
+    }
+  })
+
+  it('web SSO button still goes to /api/auth/oidc/login', async () => {
+    const location = stubLocation()
+    try {
+      const { user } = await renderLogin()
+      await user.click(await screen.findByRole('button', { name: t('auth.loginWithProvider', { provider: 'Pocket ID' }) }))
+
+      expect(location.stub.href).toBe('/api/auth/oidc/login')
+    } finally {
+      location.restore()
+    }
+  })
+
+  it('shows Sign-in did not complete when sso=failed', async () => {
+    for (const [language, message] of [
+      ['en', 'Sign-in did not complete'],
+      ['pt-BR', 'O login não foi concluído'],
+    ] as const) {
+      await i18n.changeLanguage(language)
+      try {
+        const { unmount } = renderWithProviders(<LoginPage />, { route: '/login?sso=failed' })
+        expect(await screen.findByRole('alert')).toHaveTextContent(message)
+        unmount()
+      } finally {
+        await i18n.changeLanguage('en')
+      }
+    }
   })
 })

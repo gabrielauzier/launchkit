@@ -199,4 +199,22 @@ describe('connect to a server screen', () => {
     expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toBeNull()
     expect(setup.status).toHaveBeenCalledTimes(1)
   })
+
+  it('shows Sign-in did not complete when sso=failed', async () => {
+    for (const [language, message] of [
+      ['en', 'Sign-in did not complete'],
+      ['pt-BR', 'O login não foi concluído'],
+    ] as const) {
+      await i18n.changeLanguage(language)
+      installDesktopApi(vi.fn())
+      const { unmount } = renderWithProviders(
+        <Routes>
+          <Route path="/connect" element={<ConnectServerPage />} />
+        </Routes>,
+        { route: '/connect?sso=failed' },
+      )
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      unmount()
+    }
+  })
 })

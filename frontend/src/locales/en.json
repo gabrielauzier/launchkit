@@ -224,6 +224,9 @@
     },
     "update": {
       "restart": "Restart to update to {{version}}"
+    },
+    "sso": {
+      "incomplete": "Sign-in did not complete"
     }
   },
   "files": {

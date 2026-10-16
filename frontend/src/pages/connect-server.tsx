@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { setup, WORKSPACE_STORAGE_KEY } from '@/lib/api'
 import { getDesktopApi } from '@/lib/platform'
@@ -17,6 +17,9 @@ interface ConnectServerPageProps {
 export default function ConnectServerPage({ onConnected }: ConnectServerPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // The desktop app lands here with ?sso=failed when a sign-in deep link arrived before a server was set.
+  const ssoFailed = searchParams.get('sso') === 'failed'
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const [insecureConfirmed, setInsecureConfirmed] = useState(false)
@@ -74,6 +77,11 @@ export default function ConnectServerPage({ onConnected }: ConnectServerPageProp
             <p className="text-sm text-muted-foreground mt-1 text-center">{t('desktop.connect.description')}</p>
           </div>
           <CardContent className="space-y-4 px-8 pt-4">
+            {ssoFailed && !error && (
+              <div role="alert" className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
+                {t('desktop.sso.incomplete')}
+              </div>
+            )}
             {error && (
               <div role="alert" className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
                 {error}

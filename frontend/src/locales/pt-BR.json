@@ -224,6 +224,9 @@
     },
     "update": {
       "restart": "Reiniciar para atualizar para {{version}}"
+    },
+    "sso": {
+      "incomplete": "O login não foi concluído"
     }
   },
   "files": {
