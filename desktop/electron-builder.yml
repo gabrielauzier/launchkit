@@ -30,8 +30,9 @@ publish:
 mac:
   category: public.app-category.productivity
   # Signing and notarization read CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID,
-  # APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment; without
-  # them the build is unsigned (local and CI checks pass -c.mac.identity=-, an ad-hoc signature).
+  # APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment. The
+  # release workflow fails on macOS when they are missing; only local and CI
+  # package builds pass -c.mac.identity=- (an ad-hoc signature).
   hardenedRuntime: true
   gatekeeperAssess: false
   notarize: true

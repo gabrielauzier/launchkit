@@ -1,4 +1,5 @@
 import { defineConfig } from 'electron-vite'
+import { isSignedBuild } from './src/main/signed-build'
 
 // Only the main and preload bundles are built here. The renderer is the
 // frontend's own `vite build --mode desktop` output (frontend/dist-desktop),
@@ -7,7 +8,7 @@ export default defineConfig({
   main: {
     // Only a build made with LAUNCHKIT_DESKTOP_SIGNED=true (the release workflow
     // with signing secrets) may start the auto updater.
-    define: { __SIGNED_BUILD__: JSON.stringify(process.env.LAUNCHKIT_DESKTOP_SIGNED === 'true') },
+    define: { __SIGNED_BUILD__: JSON.stringify(isSignedBuild(process.env)) },
     build: { rollupOptions: { input: { index: 'src/main/index.ts' } } },
   },
   preload: {

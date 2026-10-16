@@ -1,10 +1,13 @@
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const file = path.resolve(__dirname, '../../.github/workflows/desktop-release.yml')
 const text = readFileSync(file, 'utf8')
+const builder = parse(readFileSync(path.resolve(__dirname, '../electron-builder.yml'), 'utf8')) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 const workflow = parse(text) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
 describe('desktop-release workflow', () => {
@@ -20,6 +23,51 @@ describe('desktop-release workflow', () => {
     expect(text).toContain('vars.LAUNCHKIT_DESKTOP_RELEASE_REPO')
     expect(publish.env.GH_TOKEN).toContain('secrets.')
     expect(job.permissions.contents).toBe('write')
+    expect(publish.run).not.toMatch(/--publish\s+never/)
+  })
+
+  it('splits the configurable owner/repo for the builder', () => {
+    const resolve = workflow.jobs['desktop-release'].steps.find((step: { name?: string }) => step.name?.startsWith('Resolve the releases repository'))
+    expect(resolve.env.RELEASE_REPO).toBe('${{ vars.LAUNCHKIT_DESKTOP_RELEASE_REPO }}')
+    const dir = mkdtempSync(path.join(tmpdir(), 'launchkit-release-'))
+    try {
+      const run = (repo: string) => {
+        const githubEnv = path.join(dir, 'env')
+        writeFileSync(githubEnv, '')
+        const env = { ...process.env, RUNNER_OS: 'Linux', GITHUB_ENV: githubEnv, RELEASE_REPO: repo, HAS_WIN_CERT: 'false' }
+        const result = spawnSync('bash', ['-c', resolve.run], { env, encoding: 'utf8' })
+        return { status: result.status, exported: readFileSync(githubEnv, 'utf8') }
+      }
+      const ok = run('acme/launchkit-releases')
+      expect(ok.status).toBe(0)
+      expect(ok.exported).toContain('LAUNCHKIT_DESKTOP_RELEASE_OWNER=acme\n')
+      expect(ok.exported).toContain('LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME=launchkit-releases\n')
+      // Linux is never signed, so its build never starts the autoUpdater.
+      expect(ok.exported).toContain('LAUNCHKIT_DESKTOP_SIGNED=false\n')
+      expect(ok.exported).not.toContain('LAUNCHKIT_DESKTOP_SIGNED=true')
+      for (const bad of ['', 'no-slash', 'a/b/c', '/repo']) expect(run(bad).status, JSON.stringify(bad)).not.toBe(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    // ...and the builder reads exactly the variables the step writes.
+    expect(builder.publish).toMatchObject({
+      provider: 'github',
+      owner: '${env.LAUNCHKIT_DESKTOP_RELEASE_OWNER}',
+      repo: '${env.LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}',
+    })
+  })
+
+  it('publishes the latest*.yml update feeds next to the installers', () => {
+    // electron-builder writes latest-mac.yml for the zip, latest.yml for nsis and
+    // latest-linux.yml for the AppImage, and `--publish always` uploads them.
+    const names = (section: { target: Array<string | { target: string }> }) => section.target.map((t) => (typeof t === 'string' ? t : t.target))
+    expect(names(builder.mac)).toContain('zip')
+    expect(names(builder.win)).toContain('nsis')
+    expect(names(builder.linux)).toContain('AppImage')
+    expect(builder.publish.provider).toBe('github')
+    expect(JSON.stringify(builder)).not.toContain('generateUpdatesFilesForAllChannels')
+    const publish = workflow.jobs['desktop-release'].steps.find((step: { run?: string }) => step.run?.includes('--publish always'))
+    expect(publish.run).toContain('electron-builder')
   })
 
   it('signs only when the signing secrets exist', () => {
