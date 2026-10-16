@@ -1,5 +1,6 @@
 import cors from '@fastify/cors'
 import formbody from '@fastify/formbody'
+import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify'
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod'
@@ -7,8 +8,12 @@ import type { AppContext } from './context.ts'
 import { decorateRequest } from './plugins/auth.ts'
 import { registerErrorHandling } from './plugins/errors.ts'
 import { authRoutes } from './routes/auth.ts'
+import { fileRoutes } from './routes/files.ts'
 import { healthRoutes } from './routes/health.ts'
+import { oidcRoutes } from './routes/oidc.ts'
+import { passkeyRoutes } from './routes/passkeys.ts'
 import { setupRoutes } from './routes/setup.ts'
+import { twoFactorRoutes } from './routes/two-factor.ts'
 import { userRoutes } from './routes/users.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
 
@@ -23,6 +28,8 @@ export async function buildApp(ctx: AppContext, options: FastifyServerOptions = 
     transform: jsonSchemaTransform,
   })
   await app.register(formbody)
+  // One byte over the limit marks the file as truncated, which the upload route reports as too large.
+  await app.register(multipart, { limits: { fileSize: (ctx.config.storageMaxFileSizeMb + 1) * 1024 * 1024, files: 1 } })
   await app.register(cors, {
     origin: [ctx.config.frontendUrl],
     credentials: true,
@@ -34,6 +41,10 @@ export async function buildApp(ctx: AppContext, options: FastifyServerOptions = 
 
   await app.register(healthRoutes)
   await app.register(authRoutes(ctx))
+  await app.register(twoFactorRoutes(ctx))
+  await app.register(passkeyRoutes(ctx))
+  await app.register(oidcRoutes(ctx))
+  await app.register(fileRoutes(ctx))
   await app.register(userRoutes(ctx))
   await app.register(setupRoutes(ctx))
   await app.register(workspaceRoutes(ctx))

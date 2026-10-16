@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, preValidationAsyncHookHandler } from 'fastify'
 import type { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
@@ -40,6 +40,29 @@ export function userRoutes(ctx: AppContext) {
       if (!target) throw new HttpError(404, 'Not Found')
       request.target = target
     }
+
+    const lookupResult = z.object({ id: z.string(), email: z.string() })
+
+    // Static paths: they win over `/api/users/:id`.
+    typed.get(
+      '/api/users/lookup',
+      { schema: { querystring: z.object({ email: z.email() }), response: { 200: lookupResult } }, preValidation: [requireUser] },
+      async (request) => {
+        const [found] = await ctx.db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(sql`lower(${users.email}) = lower(${request.query.email})`)
+          .limit(1)
+        if (!found) throw new HttpError(404, 'User not found')
+        return found
+      },
+    )
+
+    typed.get(
+      '/api/users/directory',
+      { schema: { response: { 200: z.array(lookupResult) } }, preValidation: [requireUser] },
+      async () => ctx.db.select({ id: users.id, email: users.email }).from(users).orderBy(asc(users.email)),
+    )
 
     typed.get('/api/users/me', { schema: { response: { 200: userReadSchema } }, preValidation: [requireUser] }, async (request) =>
       toUserRead(request.user),

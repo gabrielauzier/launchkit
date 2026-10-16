@@ -5,7 +5,10 @@ import type { AppContext } from '../context.ts'
 import { HttpError } from '../http/http-error.ts'
 import { requireLocalAuth, requireRegistrationEnabled } from '../plugins/policy.ts'
 import { LOGIN_LIMIT, PASSWORD_RESET_LIMIT, REGISTER_LIMIT, rateLimit } from '../plugins/rate-limit.ts'
+import { eq, sql } from 'drizzle-orm'
+import { userPasskeys } from '../db/schema.ts'
 import { verifyAndUpdate } from '../services/password.ts'
+import { issueTempToken } from '../services/two-factor.ts'
 import { readResetToken, writeAccessToken } from '../services/tokens.ts'
 import { UserAlreadyExists, UUID_PATTERN, authenticate, getUserById, getUserByEmail, registerUser, toUserRead, updateUser } from '../services/users.ts'
 import { userReadSchema } from './schemas.ts'
@@ -55,6 +58,23 @@ export function authRoutes(ctx: AppContext) {
       async (request) => {
         const user = await authenticate(ctx.db, request.body.username, request.body.password)
         if (!user || !user.isActive) throw new HttpError(400, 'LOGIN_BAD_CREDENTIALS')
+
+        const availableMethods: string[] = []
+        if (user.is2faEnabled && user.totpSecret) {
+          availableMethods.push('totp')
+          // A passkey is a second factor only for someone who turned 2FA on; on its own it is a
+          // passwordless alternative, and demanding it on top of the password could lock them out.
+          const [passkeys] = await ctx.db
+            .select({ n: sql<number>`count(*)::int` })
+            .from(userPasskeys)
+            .where(eq(userPasskeys.userId, user.id))
+          if ((passkeys?.n ?? 0) > 0) availableMethods.push('passkey')
+        }
+        if (availableMethods.length > 0) {
+          const tempToken = await issueTempToken(ctx.keyValueStore, user.id, availableMethods)
+          return { requires_2fa: true, temp_token: tempToken, available_methods: availableMethods }
+        }
+
         return { access_token: await writeAccessToken(ctx.config, user.id), token_type: 'bearer' }
       },
     )

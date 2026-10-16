@@ -3,6 +3,7 @@ import { loadConfig } from './config.ts'
 import { connectPostgres } from './db/client.ts'
 import { applyMigrations } from './db/migrate.ts'
 import { MemoryStore } from './ports/memory-store.ts'
+import { createStorageProvider } from './ports/local-storage.ts'
 import { RedisStore } from './ports/redis-store.ts'
 import type { KeyValueStore } from './ports/key-value-store.ts'
 
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
   const keyValueStore: KeyValueStore = config.redisUrl ? new RedisStore(config.redisUrl) : new MemoryStore()
 
   const app = await buildApp(
-    { config, db: database.db, keyValueStore },
+    { config, db: database.db, keyValueStore, storage: createStorageProvider(config) },
     { logger: { level: config.debug ? 'debug' : 'info' } },
   )
 

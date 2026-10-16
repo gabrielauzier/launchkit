@@ -119,3 +119,5 @@ export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Workspace = typeof workspaces.$inferSelect
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect
+export type StoredFileRecord = typeof files.$inferSelect
+export type UserPasskey = typeof userPasskeys.$inferSelect

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
 import { drizzle } from 'drizzle-orm/pglite'
 import type { FastifyInstance } from 'fastify'
@@ -6,6 +9,7 @@ import { type Config, loadConfig } from '../../src/config.ts'
 import type { AppContext } from '../../src/context.ts'
 import type { Database } from '../../src/db/client.ts'
 import { applyMigrations } from '../../src/db/migrate.ts'
+import { LocalStorageProvider } from '../../src/ports/local-storage.ts'
 import { MemoryStore } from '../../src/ports/memory-store.ts'
 
 export interface TestApp {
@@ -27,7 +31,8 @@ export async function createTestApp(env: Record<string, string> = {}): Promise<T
     { SECRET_KEY: 'test-signing-key', TRUSTED_PROXY_HOPS: '1', ...env },
     { envFiles: [], secretsDirs: [] },
   )
-  const ctx: AppContext = { config, db, keyValueStore: new MemoryStore() }
+  const storage = new LocalStorageProvider(mkdtempSync(join(tmpdir(), 'launchkit-node-files-')))
+  const ctx: AppContext = { config, db, keyValueStore: new MemoryStore(), storage }
   const app = await buildApp(ctx)
   return {
     app,
