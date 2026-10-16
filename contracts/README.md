@@ -33,3 +33,13 @@ start an extra instance of the subject stack with the settings they need.
 
 Every case title starts with its check id (`C6 ...`), so one check runs with `-t "C6 "`.
 No case may be skipped or conditioned on the stack (`tests/meta.test.ts` enforces it).
+
+## Local cache gotcha
+
+After a failing run, Vitest runs the previously failed file first. `99-logs.test.ts` needs the whole suite to have run before it (it scans the log for the secrets the other cases used), so it then fails with "expected 1 to be greater than 10" on every later run. Clear the cache and rerun:
+
+```bash
+rm -rf contracts/node_modules/.vite
+```
+
+CI has no such cache.
