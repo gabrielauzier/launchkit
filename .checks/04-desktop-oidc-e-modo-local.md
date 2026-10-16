@@ -14,7 +14,7 @@ Sources:
 
 - Passkeys no desktop, sincronização local/servidor, backend Python embutido, PostgreSQL embutido, token no Keychain/DPAPI/libsecret, bandeja, notificações, abrir ao iniciar, modo local multiusuário ou na rede - `Out of scope` da task.
 - Assinatura e notarização (Apple/Windows) - não existem certificados (task 3).
-- Mitigar o login-CSRF por deep link (um site que dispare `launchkit://auth/callback#access_token=<jwt do atacante>` entra o usuário na conta do atacante) - o critério 7 manda gravar o token de qualquer deep link bem formado e o backend devolve o token sem vínculo com quem iniciou o fluxo; fica registrado em `Landing` como risco aceito, não como critério.
+- Revisão pós-batch 1 (decisão do usuário, task atualizada em `568090d`): o login-CSRF por deep link é mitigado pelo `desktop_nonce` dos critérios 1, 2, 3, 4, 7 e 9; os checks D1 a D4, D7 e D9 abaixo foram reescritos antes do código.
 
 ## Landing
 
@@ -24,12 +24,12 @@ Toca: `backend/app/api/oidc_auth.py`, `backend/app/core/config.py`, `backend-nod
 | --- | --- | --- |
 | `redirect_target` do OIDC (Decided) | query opcional em `GET /api/auth/oidc/login`; env `OIDC_DESKTOP_REDIRECT` = URLs exatas separadas por vírgula (cada item com `strip`, itens vazios descartados; comparação por igualdade de string, sem normalizar); Python `Settings.oidc_desktop_redirect: str = ""`, Node `config.oidcDesktopRedirect`; `oidc_state:<state>` ganha a chave `redirect_target` só quando o parâmetro veio (sem ele o JSON continua `{"nonce","code_verifier"}`); o callback redireciona para `<redirect_target>#access_token=<jwt>&token_type=bearer` (307), senão para `<FRONTEND_URL>/auth/oidc/callback#...` | rotas `/api/auth/oidc/desktop/*` (duplicam o fluxo em duas stacks); porta de loopback do RFC 8252 (exige registrar a porta no provedor); gravar `redirect_target: null` quando ausente (muda o JSON que o critério 5 e o C23 da task 1 fixam) |
 | Ordem das validações em `GET /api/auth/oidc/login` | a validação do `redirect_target` roda depois de `OIDC_CLIENT_ID` e da descoberta (404 `OIDC login is not enabled` e os 500 de configuração mantêm a precedência de hoje) e antes de gerar `state` e de qualquer escrita no Redis; `400 {"detail": "Invalid redirect_target"}` | validar primeiro (um servidor mal configurado passaria a responder 400 a um parâmetro que o resto do fluxo ainda nem leu) |
-| Entrega do token ao renderer | o processo principal navega a janela para `app://launchkit/auth/oidc/callback#access_token=<jwt>&token_type=bearer`; a página `oidc-callback.tsx` que já existe grava o token (`loginWithToken`), troca o fragmento e vai para `/`; nenhum membro novo na ponte por causa do SSO | evento IPC `auth:token` com um membro novo `onAuthToken` (cresce a ponte e a página precisaria de um segundo caminho); gravar `localStorage` com `executeJavaScript` (código injetado no renderer) |
-| Botão de SSO no desktop | `login.tsx` chama `getDesktopApi().getServerUrl()` e `openExternal(<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback)`; no web o botão fica como está | um membro novo `startSso()` na ponte (o main refaria a URL que o renderer já sabe montar) |
-| Módulo do deep link | `desktop/src/main/deep-link.ts`: `parseDeepLink(url): {kind:'ignored'} \| {kind:'failed'} \| {kind:'sign-in', token}` (aceita só `launchkit:` com host `auth` e caminho exato `/callback`; sem `access_token` não vazio no fragmento = `failed`) e `createDeepLinkHandler({getServerUrl, navigate, focus})`, que guarda o último link tratado e ignora o idêntico; ligado em `app.on('open-url')` (macOS), no `second-instance` (argv, todos os sistemas) e no argv da partida a frio (Windows/Linux), com buffer até `ready`; `app.setAsDefaultProtocolClient('launchkit')` e `protocols` no `electron-builder.yml` | tratar o link dentro de `index.ts` (sem teste de unidade); deduplicar por tempo (um segundo login legítimo logo depois seria engolido) |
+| Entrega do token ao renderer | o processo principal, depois de validar o `desktop_nonce`, navega a janela para `app://launchkit/auth/oidc/callback#access_token=<jwt>&token_type=bearer` (sem o nonce); a página `oidc-callback.tsx` que já existe grava o token (`loginWithToken`), troca o fragmento e vai para `/`; nenhum membro novo na ponte por causa do SSO | evento IPC `auth:token` com um membro novo `onAuthToken` (cresce a ponte e a página precisaria de um segundo caminho); gravar `localStorage` com `executeJavaScript` (código injetado no renderer) |
+| Botão de SSO no desktop (revisado pelo nonce) | `login.tsx` chama `getDesktopApi().startSso()`; o main (`desktop/src/main/sso-flow.ts`) gera o `desktop_nonce` (`randomBytes(32).toString('base64url')`, 43 caracteres), guarda um único fluxo pendente em memória com validade de 10 minutos (um novo `start()` substitui o anterior) e chama `shell.openExternal(<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback&desktop_nonce=<nonce>)`; a ponte cresce de 8 para 9 membros (`startSso(): Promise<void>`) e o teste que a fixa (`security.spec.ts`, C20a da task 3) passa a fixar 9; no web o botão fica como está | o renderer gerar e guardar o nonce e chamar `openExternal` (o renderer perde o estado quando o main navega para o callback, e um script do renderer poderia ler e reaproveitar o nonce); o nonce no próprio main sem membro na ponte (nada no renderer dispararia o fluxo) |
+| Módulo do deep link | `desktop/src/main/deep-link.ts`: `parseDeepLink(url): {kind:'ignored'} \| {kind:'failed'} \| {kind:'sign-in', token}` (aceita só `launchkit:` com host `auth` e caminho exato `/callback`; sem `access_token` não vazio no fragmento = `failed`) e `createDeepLinkHandler({getServerUrl, navigate, focus, consumeNonce})`, que ignora o link idêntico ao último tratado e, para um link `sign-in`, só navega se `consumeNonce(desktop_nonce)` aceitar (nonce igual ao do fluxo pendente, vivo, uso único); o fluxo pendente é consumido por qualquer link com `desktop_nonce` presente, aceito ou não, no primeiro uso; ligado em `app.on('open-url')` (macOS), no `second-instance` (argv, todos os sistemas) e no argv da partida a frio (Windows/Linux), com buffer até `ready`; `app.setAsDefaultProtocolClient('launchkit')` e `protocols` no `electron-builder.yml` | tratar o link dentro de `index.ts` (sem teste de unidade); deduplicar por tempo (um segundo login legítimo logo depois seria engolido) |
 | Falha do SSO na tela | `navigate` para `app://launchkit/login?sso=failed` com servidor configurado, ou `app://launchkit/connect?sso=failed` sem servidor; a página lê `sso=failed` e mostra um `role="alert"` com `desktop.sso.incomplete` (en `Sign-in did not complete`, pt-BR `O login não foi concluído`) | rota nova `/sso-error` (mais um destino a proteger no portão); toast disparado pelo main (precisa de IPC para o renderer) |
-| Login-CSRF por deep link (risco aceito) | o app trata qualquer `launchkit://auth/callback#access_token=...` bem formado, como o critério 7 pede; sem vínculo com o clique do usuário | exigir um fluxo pendente iniciado pelo app (contradiz o critério 7 e o proof do deep link entregue sem clique); registrado para o usuário decidir |
-| Ids dos checks de contrato | os casos novos de `contracts/tests/oidc-desktop.test.ts` têm título `D2 ...` a `D6 ...` | reusar o prefixo `C` (colide com C2..C6 da task 1) |
+| Login-CSRF por deep link (decisão do usuário, task `568090d`) | `desktop_nonce` aleatório do app, validado no servidor (mínimo 32 caracteres; `redirect_target` válido sem ele ou com menos: `400 {"detail":"Invalid desktop_nonce"}`, depois da validação do `redirect_target`), gravado em `oidc_state:<state>` (chave `desktop_nonce`, só com `redirect_target`) e devolvido no fragmento do deep link como `&desktop_nonce=<nonce>` (url-encoded; base64url não muda); `desktop_nonce` sem `redirect_target` é ignorado e não é gravado; o app aceita o link só com o nonce do fluxo pendente | aceitar qualquer deep link bem formado (um site que dispare `launchkit://auth/callback#access_token=<jwt do atacante>` loga a vítima na conta do atacante); amarrar o fluxo ao `state` do provedor no cliente (o app não vê o `state`: ele vive só no servidor e no navegador) |
+| Ids dos checks de contrato | os casos novos de `contracts/tests/oidc-desktop.test.ts` têm título `D2 ...` a `D6 ...` (os existentes são ajustados ao nonce) | reusar o prefixo `C` (colide com C2..C6 da task 1) |
 | `userData/config.json` ganha `mode` (Decided) | `{"mode": "remote" \| "local", "serverUrl": "...", "bounds": {...}}`; regra de leitura em `config-store.getMode()`: `mode` presente vale; ausente com `serverUrl` presente = `remote` (instalações da task 3 não veem a escolha); ausente sem `serverUrl` = `null` (primeiro uso) | `localStorage` (o main precisa do modo antes da janela); tratar `mode` ausente como não escolhido sempre (instalações da task 3 cairiam na escolha de modo) |
 | A ponte `window.launchkit` cresce (S2 e S3) | os 8 membros de hoje + `getMode(): Promise<'remote'\|'local'\|null>`, `startLocal(): Promise<{ok:true}\|{ok:false}>`, `openLogs(): Promise<void>`, `onExportState(cb): () => void`; o teste que fixa a lista (task 3, `security.spec.ts` "exposes exactly the eight members") passa a fixar a lista nova; ficam de fora: troca de servidor, exportar e importar, que o menu aciona no main | caminhos HTTP internos em `app://launchkit/_local/*` (fora do `trustedHandle`, sem validação de remetente); esconder o modo dentro de `getServerUrl` (mistura duas coisas) |
 | Escolha de modo e `Trocar de servidor` | rota `/mode` interceptada pelo `DesktopGate` como `/connect` (não é `<Route>`); aparece quando `getMode() === null` e quando o menu, em modo local, carrega `app://launchkit/mode`; em modo remoto o menu continua carregando `/connect` (task 3, C10a) e a tela de conexão grava `mode: remote` ao validar | trocar o item de menu do modo remoto para a escolha de modo (muda C10a da task 3) |
@@ -49,24 +49,28 @@ Tamanho de cada slice: piso de leitura = `wc -c` dos arquivos existentes que a s
 
 ### S1 - Login por SSO pelo navegador do sistema · D1-D10 · 26 arquivos existentes · 130 KB · piso ~32k · estimativa ~123k
 
-**D1a** - No desktop, escolher entrar por SSO em `/login` chama `openExternal` uma vez com `<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback` e não navega a janela
+**D1a** - No desktop, escolher entrar por SSO em `/login` chama `startSso()` da ponte uma vez e não navega a janela
 Proof: `cd frontend && npx vitest run src/pages/login.test.tsx -t "starts SSO in the system browser on desktop"`
 
-**D1b** - No app, o botão de SSO faz `shell.openExternal` receber essa URL e continua existindo 1 janela, ainda em `app://launchkit/login`
+**D1b** - No app, o botão de SSO faz `shell.openExternal` receber `<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback&desktop_nonce=<nonce>` com `<nonce>` de 43 caracteres base64url, e continua existindo 1 janela, ainda em `app://launchkit/login`
 Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "SSO button opens the system browser and keeps one window"`
+
+**D1d** - O fluxo pendente guarda o nonce em memória por 10 minutos: dois `start()` dão nonces diferentes de 43 caracteres base64url, `consume` aceita o nonce uma vez dentro dos 10 minutos e recusa o mesmo nonce de novo, outro valor, e o nonce depois de 10 minutos; um `start()` novo invalida o anterior
+Proof: `cd desktop && npx vitest run src/main/sso-flow.test.ts -t "keeps one pending flow for ten minutes and consumes it once"`
+Proof: `cd desktop && npx vitest run src/main/sso-flow.test.ts -t "builds the login url with a 43 character base64url nonce"`
 
 **D1c** - No build web o botão de SSO continua indo para `/api/auth/oidc/login` sem `redirect_target`
 Proof: `cd frontend && npx vitest run src/pages/login.test.tsx -t "web SSO button still goes to /api/auth/oidc/login"`
 
-**D2** - Com `OIDC_DESKTOP_REDIRECT=launchkit://auth/callback`, `GET /api/auth/oidc/login?redirect_target=launchkit://auth/callback` responde 307 para o `/authorize` do provedor com os oito parâmetros de hoje e o Redis guarda `oidc_state:<state>` com JSON de chaves exatamente `code_verifier`, `nonce`, `redirect_target` (valor `launchkit://auth/callback`) e TTL entre 590 e 600 s
+**D2** - Com `OIDC_DESKTOP_REDIRECT=launchkit://auth/callback`, `GET /api/auth/oidc/login?redirect_target=launchkit://auth/callback&desktop_nonce=<43 caracteres>` responde 307 para o `/authorize` do provedor com os oito parâmetros de hoje e o Redis guarda `oidc_state:<state>` com JSON de chaves exatamente `code_verifier`, `desktop_nonce`, `nonce`, `redirect_target` (valores `launchkit://auth/callback` e o nonce enviado) e TTL entre 590 e 600 s
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D2 "`
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D2 "`
 
-**D3** - Com o `state` do D2, o callback com `code` e `state` válidos responde 307 para um `Location` que começa em `launchkit://auth/callback#access_token=` e termina em `&token_type=bearer`, e o JWT dá 200 em `GET /api/users/me`
+**D3** - Com o `state` do D2, o callback com `code` e `state` válidos responde 307 para um `Location` que começa em `launchkit://auth/callback#access_token=` e termina em `&token_type=bearer&desktop_nonce=<nonce>` com o mesmo nonce enviado no login, e o JWT dá 200 em `GET /api/users/me`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D3 "`
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D3 "`
 
-**D4a** - Com a lista configurada, um `redirect_target` que não é exatamente um item dela responde 400 `{"detail": "Invalid redirect_target"}`, sem `Location` e sem criar chave `oidc_state:*` no Redis (tabela: `https://evil.example/cb`, `launchkit://auth/callback/`, `launchkit://auth/callbackx`, `LAUNCHKIT://auth/callback`, ` launchkit://auth/callback` com espaço à frente, `redirect_target=` vazio)
+**D4a** - Com a lista configurada, um `redirect_target` que não é exatamente um item dela responde 400 `{"detail": "Invalid redirect_target"}`, sem `Location` e sem criar chave `oidc_state:*` no Redis, mesmo com um `desktop_nonce` válido (tabela: `https://evil.example/cb`, `launchkit://auth/callback/`, `launchkit://auth/callbackx`, `LAUNCHKIT://auth/callback`, ` launchkit://auth/callback` com espaço à frente, `redirect_target=` vazio)
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects"`
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects"`
 
@@ -78,19 +82,25 @@ Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.te
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 accepts every item of the list"`
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D4 accepts every item of the list"`
 
-**D5** - Sem `redirect_target` (com a lista configurada) o estado guardado é `{"nonce","code_verifier"}` e o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`
+**D4d** - Com o `redirect_target` válido, `desktop_nonce` ausente, vazio ou de 31 caracteres responde 400 `{"detail": "Invalid desktop_nonce"}`, sem `Location` e sem chave nova no Redis; de 32 caracteres é aceito (307)
+Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a missing or short desktop_nonce"`
+Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a missing or short desktop_nonce"`
+Proof: `cd backend && python -m pytest tests/test_oidc_auth.py -k desktop_nonce`
+Proof: `cd backend-node && npx vitest run test/routes/oidc.test.ts -t "desktop_nonce"`
+
+**D5** - Sem `redirect_target` (com a lista configurada) o estado guardado é `{"nonce","code_verifier"}` (também quando só `desktop_nonce` vem na query) e o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D5 "`
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D5 "`
 
-**D6** - A suíte de contrato tem um caso para cada um de D2 a D5 e a suíte inteira passa nas duas stacks sem falha nem caso pulado; `contracts/openapi.json` declara o parâmetro `redirect_target` (query, opcional) em `GET /api/auth/oidc/login`
+**D6** - A suíte de contrato tem um caso para cada um de D2 a D5 (D4 inclui D4d) e a suíte inteira passa nas duas stacks sem falha nem caso pulado; `contracts/openapi.json` declara o parâmetro `redirect_target` (query, opcional) em `GET /api/auth/oidc/login`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D6 "` e o mesmo com `CONTRACT_STACK=node` (o caso lê os títulos do próprio arquivo e exige pelo menos um por id D2, D3, D4, D5)
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run --reporter=json --outputFile=.logs/d6-python.json; node scripts/summary.mjs .logs/d6-python.json --no-skip` e o mesmo com `node`
 Proof: `python backend/scripts/export_openapi.py --check`
 
-**D7a** - Quando o macOS entrega `launchkit://auth/callback#access_token=<jwt>&token_type=bearer` (`open-url`), o app navega para `/auth/oidc/callback`, grava `localStorage.token`, chega em `/` e `GET /api/users/me` é 200
+**D7a** - Depois de iniciar o SSO pelo botão (nonce pendente), quando o macOS entrega `launchkit://auth/callback#access_token=<jwt>&token_type=bearer&desktop_nonce=<nonce>` (`open-url`) com o nonce pendente, o app navega para `/auth/oidc/callback`, grava `localStorage.token`, chega em `/` e `GET /api/users/me` é 200
 Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "an open-url deep link signs in and lands on / with users/me 200"`
 
-**D7b** - Quando uma segunda instância (Windows e Linux; roda também no macOS) traz o link no argv, a primeira instância faz o mesmo e a segunda sai com código 0
+**D7b** - Com o fluxo pendente, quando uma segunda instância (Windows e Linux; roda também no macOS) traz o link com o nonce no argv, a primeira instância faz o mesmo e o fluxo pendente é consumido e a segunda sai com código 0
 Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "a second instance carrying the link signs in"`
 Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "finds the launchkit url in a second-instance argv"`
 
@@ -98,18 +108,18 @@ Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "finds the la
 Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "registers the launchkit protocol"`
 Proof: `cd desktop && npx vitest run scripts/builder-config.test.ts -t "declares the launchkit protocol"`
 
-**D8** - O mesmo deep link entregue 2 vezes navega 1 vez e o token entra 1 vez
+**D8** - O mesmo deep link (mesmo nonce) entregue 2 vezes navega 1 vez e o token entra 1 vez
 Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "handles the same link once"`
 Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "the same deep link twice signs in once"`
 
-**D9a** - Deep link `auth/callback` sem `access_token` (tabela: sem fragmento, `#access_token=` vazio, `#error=access_denied`) com servidor configurado navega para `/login?sso=failed`; sem servidor navega para `/connect?sso=failed`; em nenhum caso há token
+**D9a** - Deep link `auth/callback` que não vale um login navega para `/login?sso=failed` com servidor configurado e para `/connect?sso=failed` sem servidor, e nenhum token é gravado (tabela: sem fragmento, `#access_token=` vazio, `#error=access_denied`, nonce ausente, nonce diferente do pendente, nonce expirado depois de 10 minutos, nonce já usado, sem fluxo pendente)
 Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "sends an incomplete link to the sign-in failure screen"`
 
 **D9b** - `/login?sso=failed` e `/connect?sso=failed` mostram um `role="alert"` com `Sign-in did not complete` (pt-BR `O login não foi concluído`)
 Proof: `cd frontend && npx vitest run src/pages/login.test.tsx -t "shows Sign-in did not complete when sso=failed"`
 Proof: `cd frontend && npx vitest run src/pages/connect-server.test.tsx -t "shows Sign-in did not complete when sso=failed"`
 
-**D9c** - No app, um link `#error=access_denied` leva a `/login?sso=failed` com a mensagem e `localStorage.token` continua vazio; sem servidor leva à tela de conexão com a mensagem
+**D9c** - No app, um link `#error=access_denied`, um link com token e nonce errado e um link com nonce válido sem fluxo pendente levam a `/login?sso=failed` com a mensagem e `localStorage.token` continua vazio; sem servidor leva à tela de conexão com a mensagem
 Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "an incomplete deep link shows the message and stores no token"`
 
 **D10** - Link com host e caminho diferentes de `auth/callback` (tabela: `launchkit://auth/other`, `launchkit://evil/callback`, `launchkit://auth/callback/extra`, `launchkit://auth/callback/`, `launchkit://auth`, `https://auth/callback#access_token=x`) é ignorado: `navigate` não é chamado e a URL da janela não muda
@@ -231,7 +241,8 @@ Proof: `cd desktop && npm run package:dir && npx vitest run scripts/packaged-loc
 
 ## Swept
 
-- validation: D4 (allowlist exata), D9, D10, D24 (formato do arquivo importado)
+- validation: D4 (allowlist exata, tamanho do nonce), D9, D10, D24
+- replay: D7/D9 (nonce de uso único, 10 minutos), D1d (formato do arquivo importado)
 - failure modes: D18c, D19, D24 (nada muda no banco)
 - idempotency and retry: D8 (mesmo link), D19b (tentar de novo), D18b (sem backup quando nada está pendente)
 - authorization: D4, D14, D15, D25 (importar só em instalação nova)
@@ -247,7 +258,8 @@ Proof: `cd desktop && npm run package:dir && npx vitest run scripts/packaged-loc
 | --- | --- | --- |
 | `redirect_target` inputs (11) | item da lista D2 · segundo item de lista D4c · terceiro fora da lista D4c · `https://evil.example/cb` D4a · barra final D4a · sufixo D4a · caixa D4a · espaço D4a · vazio D4a · ausente D5 · lista vazia D4b | - |
 | stacks do OIDC (2) | Python D2-D6 · Node D2-D6 | - |
-| entradas do deep link (6 rotas de parse) | `sign-in` D7a/D7b · sem fragmento D9a · `access_token` vazio D9a · `error=` D9a · outro caminho D10 · outro host D10 | - |
+| entradas do deep link (11) | `sign-in` com nonce pendente D7a/D7b · sem fragmento D9a · `access_token` vazio D9a · `error=` D9a · nonce ausente D9a · nonce diferente D9a/D9c · nonce expirado D9a/D1d · nonce usado D9a/D1d · sem fluxo pendente D9a/D9c · outro caminho D10 · outro host D10 | - |
+| `desktop_nonce` no login (5) | 43 caracteres D2 · 32 D4d · 31 D4d · vazio D4d · ausente D4d | - |
 | entregas do deep link (3) | `open-url` D7a · `second-instance` argv D7b · argv de partida a frio D7b (unit `deep-link.test.ts`, mesmo extrator) | partida a frio real em Windows/Linux (só unit) |
 | destinos de falha do SSO (2) | `/login?sso=failed` D9a/D9b/D9c · `/connect?sso=failed` D9a/D9b/D9c | - |
 | idiomas das mensagens novas (2) | en e pt-BR - D9b, D11a, D19a, D24, D25 | paridade de chaves no teste `desktop-keys.test.ts` (task 3, C34) |
