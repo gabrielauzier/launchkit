@@ -49,7 +49,7 @@ describe('updater', () => {
     // A rejection nobody observes is what Electron turns into an error dialog.
     const observed = vi.spyOn(rejection, 'then')
     // A plain function: a vi.fn would itself call .then on the promise and hide the difference.
-    autoUpdater.checkForUpdates = (() => rejection) as typeof autoUpdater.checkForUpdates
+    autoUpdater.checkForUpdates = (() => rejection) as unknown as typeof autoUpdater.checkForUpdates
 
     updater.start()
     await new Promise((resolve) => setImmediate(resolve))
