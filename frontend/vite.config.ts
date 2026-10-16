@@ -23,8 +23,13 @@ export default defineConfig(async ({ mode }) => {
   return {
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
+      // True only for the Electron renderer build (`vite build --mode desktop`);
+      // lets the web bundle drop every reference to `window.launchkit`.
+      __DESKTOP_BUILD__: JSON.stringify(mode === 'desktop'),
     },
     build: {
+      // The desktop build must not overwrite the web build in `dist/`.
+      outDir: mode === 'desktop' ? 'dist-desktop' : 'dist',
       // Keep the existing per-chunk budget; optional locales load on demand.
       chunkSizeWarningLimit: 1000,
       // Emit hashed JS/CSS into `static/` instead of Vite's default `assets/`,

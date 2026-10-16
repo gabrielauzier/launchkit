@@ -201,6 +201,23 @@
     "greeting": "Welcome, {{name}}",
     "workspaceHint": "Name, members, roles and timezone"
   },
+  "desktop": {
+    "connect": {
+      "title": "Connect to a server",
+      "description": "Enter the address of your launchkit server.",
+      "urlLabel": "Server URL",
+      "urlPlaceholder": "https://launchkit.example.com",
+      "confirm": "Connect",
+      "checking": "Checking…",
+      "unreachable": "Could not reach the server",
+      "invalidUrl": "Enter a URL starting with http:// or https://",
+      "insecureWarning": "This server does not use HTTPS, so your password and data travel unencrypted. Click Connect again to continue anyway."
+    },
+    "menu": {
+      "file": "File",
+      "switchServer": "Switch server"
+    }
+  },
   "files": {
     "deleteDescription": "\"{{name}}\" will be permanently removed.",
     "deleteTitle": "Delete file?",
