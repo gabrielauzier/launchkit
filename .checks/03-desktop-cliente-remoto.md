@@ -258,7 +258,7 @@ Proof: `cd frontend && npx vitest run src/hooks/use-latest-release.test.tsx -t "
 Proof: `cd desktop && npx vitest run src/main/menu.test.ts -t "menu top level labels in en and pt-BR"`
 
 **C30b** - `Cmd+K` (macOS) ou `Ctrl+K` abre a command palette na janela do app
-Proof: `cd desktop && npx playwright test e2e/native.spec.ts -g "Cmd or Ctrl+K opens the command palette"`
+Proof: `cd desktop && npx playwright test e2e/native.spec.ts -g "Cmd or Ctrl\+K opens the command palette"`
 
 **C31a** - Fechar e reabrir devolve `x`, `y`, `width`, `height` salvos
 Proof: `cd desktop && npx vitest run src/main/window-state.test.ts -t "restores saved bounds"`
