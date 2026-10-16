@@ -160,10 +160,10 @@ Proof: `cd desktop && npx playwright test e2e/connect.spec.ts -g "switching serv
 ### S3 - Entrar e usar · C11-C15 · 9 arquivos existentes · 89 KB · piso ~22k · estimativa ~89k
 
 **C11a** - Contra o servidor Python (Docker), e-mail e senha levam a `/` e `GET /api/users/me` retorna 200 pelo app
-Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "^logs in with password$"`
+Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "logs in with password$"`
 
 **C11b** - Contra o servidor Python, e-mail, senha e TOTP levam a `/` e `GET /api/users/me` retorna 200 pelo app
-Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "^logs in with password and TOTP$"`
+Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "logs in with password and TOTP$"`
 
 **C11c** - Contra o servidor Node, os mesmos dois fluxos passam (depende da task 1, ausente desta base: proof pendente)
 Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<node> npx playwright test e2e/real-server.spec.ts` (pendente até a task 1 chegar na base)
