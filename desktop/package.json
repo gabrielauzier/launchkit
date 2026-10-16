@@ -9,6 +9,7 @@
     "build:frontend": "npm --prefix ../frontend run build:desktop",
     "build": "electron-vite build",
     "build:all": "npm run build:frontend && npm run build",
+    "package:dir": "npm run build && electron-builder --dir",
     "dev": "electron-vite dev",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json",

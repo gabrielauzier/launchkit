@@ -1,0 +1,21 @@
+appId: com.launchkit.desktop
+productName: launchkit
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+asar: true
+# Hardened Electron: no Node-as-runtime, no inspector flags, and the app code
+# is only loaded from the integrity-checked asar.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+mac:
+  # Unsigned local builds; signing and notarization arrive with the release workflow.
+  identity: null

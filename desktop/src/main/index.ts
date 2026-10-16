@@ -1,9 +1,10 @@
 import path from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, net, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, protocol, session, shell } from 'electron'
 import { APP_ORIGIN, APP_SCHEME, createAppHandler } from './app-protocol'
 import { createConfigStore } from './config-store'
 import { trustedHandle } from './ipc'
 import { buildMenuTemplate, menuStrings } from './menu'
+import { denyAllPermissions, openExternalSafely } from './security'
 import { createServerConnection } from './server-connection'
 import { setupSingleInstance } from './single-instance'
 import { createMainWindow } from './window'
@@ -39,6 +40,9 @@ function start() {
       const allowInsecure = (options as { allowInsecure?: unknown } | null | undefined)?.allowInsecure === true
       return connection.connect(url, { allowInsecure })
     })
+
+    trustedHandle(ipcMain, IPC.openExternal, (_event, url: unknown) => openExternalSafely(url, (target) => shell.openExternal(target)))
+    denyAllPermissions(session.defaultSession)
 
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(

@@ -128,3 +128,21 @@ describe('app protocol api proxy', () => {
     expect(fetchFn).not.toHaveBeenCalled()
   })
 })
+
+describe('app protocol content security policy', () => {
+  it('sends a strict content security policy', async () => {
+    const { handle } = handler()
+    const responses = [
+      await handle(new Request('app://launchkit/')),
+      await handle(new Request('app://launchkit/static/app.js')),
+      await handle(new Request('app://launchkit/missing.js')),
+    ]
+    for (const response of responses) {
+      const csp = response.headers.get('content-security-policy') ?? ''
+      expect(csp).toContain("default-src 'self'")
+      expect(csp).not.toContain('unsafe-eval')
+      expect(csp).not.toContain('https:')
+      expect(csp).toContain("connect-src 'self'")
+    }
+  })
+})

@@ -1,6 +1,7 @@
 import path from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import { APP_ORIGIN } from './app-protocol'
+import { hardenWebContents } from './security'
 import { APP_VERSION_ARG } from '../shared/ipc'
 
 export function createMainWindow(appVersion: string): BrowserWindow {
@@ -18,6 +19,7 @@ export function createMainWindow(appVersion: string): BrowserWindow {
       additionalArguments: [`${APP_VERSION_ARG}${appVersion}`],
     },
   })
+  hardenWebContents(win.webContents, { openExternal: (url) => shell.openExternal(url) })
   void win.loadURL(`${APP_ORIGIN}/`)
   return win
 }

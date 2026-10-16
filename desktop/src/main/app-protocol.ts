@@ -35,7 +35,25 @@ const CONTENT_TYPES: Record<string, string> = {
 // meaningful to the real server, and `origin` would require CORS there.
 const DROPPED_REQUEST_HEADERS = ['origin', 'referer', 'host', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest', 'sec-fetch-user']
 
-const notFound = () => new Response('Not found', { status: 404 })
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+function withCsp(response: Response): Response {
+  response.headers.set('content-security-policy', CONTENT_SECURITY_POLICY)
+  return response
+}
+
+const notFound = () => withCsp(new Response('Not found', { status: 404 }))
 
 async function isFile(file: string): Promise<boolean> {
   try {
@@ -48,7 +66,7 @@ async function isFile(file: string): Promise<boolean> {
 async function serveFile(file: string): Promise<Response> {
   const body = await readFile(file)
   const type = CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
-  return new Response(body, { status: 200, headers: { 'content-type': type } })
+  return withCsp(new Response(body, { status: 200, headers: { 'content-type': type } }))
 }
 
 async function serveStatic(distDir: string, pathname: string): Promise<Response> {
@@ -69,7 +87,7 @@ async function serveStatic(distDir: string, pathname: string): Promise<Response>
 
 function proxyApi(deps: Deps, request: Request, url: URL): Promise<Response> | Response {
   const serverUrl = deps.getServerUrl()
-  if (!serverUrl) return new Response('No server configured', { status: 503 })
+  if (!serverUrl) return withCsp(new Response('No server configured', { status: 503 }))
   const headers = new Headers(request.headers)
   for (const name of DROPPED_REQUEST_HEADERS) headers.delete(name)
   const init: RequestInit & { duplex?: 'half' } = { method: request.method, headers }
@@ -89,7 +107,7 @@ export function createAppHandler(deps: Deps): (request: Request) => Promise<Resp
     try {
       return await serveStatic(deps.distDir, url.pathname)
     } catch {
-      return new Response('Internal error', { status: 500 })
+      return withCsp(new Response('Internal error', { status: 500 }))
     }
   }
 }
