@@ -75,7 +75,7 @@ Proof: `node --test --test-name-pattern='^C3 ' scripts/stack/stack.test.mjs` (`d
 **C4** - `BACKEND_STACK=node`: `GET http://localhost:<FRONTEND_PORT>/api/health` 200 `{"status":"healthy"}`, e o frontend alcança a API em `http://backend:8000`
 Proof: `node --test --test-name-pattern='^C4 ' scripts/stack/stack.test.mjs` (health pelo frontend; `docker compose exec frontend` resolve `backend` e `GET http://backend:8000/api/health` 200)
 
-**C5** - `BACKEND_STACK=node`, banco vazio: quando `/api/health` responde 200 pela primeira vez, as 6 tabelas (`users`, `passkeys`, `workspaces`, `workspace_members`, `app_settings`, `files`) existem; reiniciar `backend-node` roda a migration de novo sem erro e sem DDL
+**C5** - `BACKEND_STACK=node`, banco vazio: quando `/api/health` responde 200 pela primeira vez, as 6 tabelas (`users`, `user_passkeys`, `workspaces`, `workspace_members`, `app_settings`, `files`) existem; reiniciar `backend-node` roda a migration de novo sem erro e sem DDL
 Proof: `node --test --test-name-pattern='^C5 ' scripts/stack/stack.test.mjs` (consulta `\dt` no `db` logo após o primeiro 200; `docker compose restart backend-node`, log contém `migrations applied` duas vezes, `pg_stat_statements`-free: o `pg_dump --schema-only` antes e depois é idêntico)
 
 **C6** - Migration do `backend-node` falha: o container sai com código ≠ 0 e `/api/health` nunca responde 200
@@ -165,7 +165,7 @@ Proof: `python3 .github/ci/test_workflow_jobs.py ChangesWiringTest.test_stack_jo
 | serviços Compose Node (6) | `redis` `db` `frontend` `backend-node` `worker-node` `scheduler-node`: igualdade de conjunto em C1 | - |
 | serviços Compose Python (6) | `redis` `db` `backend` `frontend` `celery-worker` `celery-beat`: igualdade de conjunto em C2 | - |
 | valores de `BACKEND_STACK` (4) | `python` C2 · ausente C2 · `node` C1 · `go` C3 | C3 bloqueado |
-| tabelas do schema (6) | `users` `passkeys` `workspaces` `workspace_members` `app_settings` `files` todas em C5 | - |
+| tabelas do schema (6) | `users` `user_passkeys` `workspaces` `workspace_members` `app_settings` `files` todas em C5 | - |
 | comandos Node no Helm (3) | migration C8 · worker C8 · beat C8 | - |
 | imagens publicadas (3) | `launchkit-backend` C10 · `launchkit-backend-node` C10 · `launchkit-frontend` C10 | - |
 | entradas do `install.sh` (3) | `--stack node` C11 · sem flag C11 · `--stack go` C11 | - |
