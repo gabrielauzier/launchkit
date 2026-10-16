@@ -46,4 +46,30 @@ describe('config store', () => {
     expect(existsSync(file)).toBe(true)
     expect(readdirSync(path.dirname(file))).toEqual(['config.json'])
   })
+
+  it('mode defaults to remote when a server url exists', () => {
+    const file = path.join(dir, 'config.json')
+    const store = createConfigStore(file)
+    expect(store.getMode()).toBeNull()
+    store.setServerUrl('https://srv.example.com')
+    expect(store.getMode()).toBe('remote')
+  })
+
+  it('an explicit mode wins, including a reopened choice', () => {
+    const file = path.join(dir, 'config.json')
+    const store = createConfigStore(file)
+    store.setServerUrl('https://srv.example.com')
+    store.setMode('local')
+    expect(createConfigStore(file).getMode()).toBe('local')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ mode: 'local', serverUrl: 'https://srv.example.com' })
+    store.setMode(null)
+    expect(createConfigStore(file).getMode()).toBeNull()
+    expect(createConfigStore(file).getServerUrl()).toBe('https://srv.example.com')
+  })
+
+  it('ignores a mode that is neither remote nor local', () => {
+    const file = path.join(dir, 'config.json')
+    writeFileSync(file, JSON.stringify({ mode: 'cloud' }))
+    expect(createConfigStore(file).getMode()).toBeNull()
+  })
 })

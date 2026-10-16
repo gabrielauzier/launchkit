@@ -146,3 +146,18 @@ describe('app protocol content security policy', () => {
     }
   })
 })
+
+describe('app protocol extra headers', () => {
+  it('adds the extra headers to proxied requests and overrides the renderer', async () => {
+    const fetchFn = vi.fn(async () => new Response('{}')) as unknown as typeof fetch
+    const handle = createAppHandler({
+      distDir,
+      getServerUrl: () => 'http://127.0.0.1:4567',
+      getExtraHeaders: () => ({ 'x-launchkit-local-token': 'real-token' }),
+      fetchFn,
+    })
+    await handle(new Request('app://launchkit/api/health', { headers: { 'x-launchkit-local-token': 'spoofed' } }))
+    const init = vi.mocked(fetchFn).mock.calls[0][1] as RequestInit
+    expect(new Headers(init.headers).get('x-launchkit-local-token')).toBe('real-token')
+  })
+})

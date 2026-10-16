@@ -8,6 +8,8 @@ export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`
 interface Deps {
   distDir: string
   getServerUrl: () => string | null
+  /** Headers only the main process may set on proxied requests (the local backend's session token). */
+  getExtraHeaders?: () => Record<string, string>
   fetchFn: typeof fetch
 }
 
@@ -90,6 +92,7 @@ function proxyApi(deps: Deps, request: Request, url: URL): Promise<Response> | R
   if (!serverUrl) return withCsp(new Response('No server configured', { status: 503 }))
   const headers = new Headers(request.headers)
   for (const name of DROPPED_REQUEST_HEADERS) headers.delete(name)
+  for (const [name, value] of Object.entries(deps.getExtraHeaders?.() ?? {})) headers.set(name, value)
   const init: RequestInit & { duplex?: 'half' } = { method: request.method, headers }
   if (request.method !== 'GET' && request.method !== 'HEAD' && request.body) {
     init.body = request.body

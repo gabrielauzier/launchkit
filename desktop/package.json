@@ -13,7 +13,8 @@
   "scripts": {
     "build:frontend": "npm --prefix ../frontend run build:desktop",
     "build": "electron-vite build",
-    "build:all": "npm run build:frontend && npm run build",
+    "build:backend": "node scripts/build-backend.mjs",
+    "build:all": "npm run build:frontend && npm run build && npm run build:backend",
     "package:dir": "npm run build:all && electron-builder --dir -c.mac.identity=-",
     "dev": "electron-vite dev",
     "lint": "eslint . --max-warnings=0",
@@ -24,6 +25,8 @@
     "package:unsigned": "npm run build:all && electron-builder -c.mac.identity=-"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@node-rs/argon2": "^2.2.2",
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
@@ -34,6 +37,7 @@
     "electron": "^44.8.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^6.0.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.1",
     "globals": "^17.0.0",
     "typescript": "~5.9.3",
