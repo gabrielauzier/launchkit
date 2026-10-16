@@ -228,8 +228,8 @@ CI-only: o consumo de `run_backend_node` pelos jobs novos só roda no GitHub; lo
 **C42** - Redis fora: `POST /api/auth/login` e as demais rotas com rate limit respondem 500, como o Python
 Proof: `contracts/tests/redis-down.test.ts` `C42 <METHOD> <path> is 500 when redis is down` por operação (10 linhas no Coverage), nas duas stacks (instância `spawnStack` com `REDIS_URL=redis://127.0.0.1:1`)
 
-**C43** - Cada operação sem critério próprio (`GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso de contrato com status e corpo, e passa nas duas stacks
-Proof: `contracts/tests/unowned-operations.test.ts` `C43 <METHOD> <path>` por operação (9 linhas no Coverage)
+**C43** - Cada operação sem critério próprio (`POST /api/auth/logout`, `GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso de contrato com status e corpo, e passa nas duas stacks
+Proof: `contracts/tests/unowned-operations.test.ts` `C43 <METHOD> <path>` por operação (10 linhas no Coverage)
 
 ## Swept
 
@@ -261,7 +261,7 @@ Proof: `contracts/tests/unowned-operations.test.ts` `C43 <METHOD> <path>` por op
 | casos de teste do Python a portar (59) | `test_oidc_auth.py` 18 · `test_passkeys.py` 27 · `test_two_factor.py` 14, todos em `parity-map.json`, C25 | - |
 | operações de workspaces e usuários (12) | `GET workspaces` · `POST workspaces` · `GET workspaces/current` · `PATCH workspaces/{id}` · `GET .../members` · `POST .../members` · `PATCH .../members/{uid}` · `DELETE .../members/{uid}` · `GET .../stats` · `POST .../archive` · `GET users/lookup` · `GET users/directory`, todas em C28 | - |
 | operações de `/api/admin/*` (13) | `GET users` · `POST users` · `GET users/{id}` · `PATCH users/{id}` · `DELETE users/{id}` · `GET settings/{key}` · `PATCH settings/{key}` · `DELETE settings/{key}` · `GET timezone` · `GET registration-status` · `GET default-colors` · `GET number-format` · `GET date-format`, todas em C32 | - |
-| operações sem critério próprio (9) | `GET info` · `GET timezones` · `GET settings/files` · `GET auth/oidc/config` · `GET users/{id}` · `DELETE users/{id}` · `GET files` · `PATCH files/{id}` · `DELETE files/{id}`, todas em C43 | - |
+| operações sem critério próprio (10) | `POST auth/logout` · `GET info` · `GET timezones` · `GET settings/files` · `GET auth/oidc/config` · `GET users/{id}` · `DELETE users/{id}` · `GET files` · `PATCH files/{id}` · `DELETE files/{id}`, todas em C43 | - |
 | montagens de configuração na partida (3) | `server.ts` C8 · `worker.ts` C35 · `cli.ts` C36, as três chamam o mesmo `loadConfig()` e o mesmo `buildContext()`; a rota HTTP usa `buildApp(ctx)`, que `server.ts` e o harness de `npm test` compartilham | - |
 
 - Checks cujo claim cita status, rota ou corpo de resposta: C5, C6, C7, C12, C14, C15, C16, C17, C18, C19, C20, C23, C24, C26, C27, C28, C29, C31, C32, C33, C34, C42, C43 - cada um tem proof de contrato HTTP que cruza a fronteira (processo real, `fetch`)

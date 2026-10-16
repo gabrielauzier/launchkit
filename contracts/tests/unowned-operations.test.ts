@@ -22,6 +22,12 @@ describe('operations without a criterion of their own', () => {
     workspaceHeaders = { 'x-workspace-id': workspaceId }
   })
 
+  it('C43 POST /api/auth/logout', async () => {
+    const reply = await api.post('/api/auth/logout', { token: user.token })
+    expect(reply.status).toBe(200)
+    expect(reply.json).toEqual({ detail: 'Logged out' })
+  })
+
   it('C43 GET /api/info', async () => {
     const reply = await api.get('/api/info')
     expect(reply.status).toBe(200)
