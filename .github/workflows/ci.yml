@@ -501,3 +501,31 @@ jobs:
           SCHEMA_DIFF_URL_BASE: postgresql://launchkit_test:launchkit_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}
           PYTHON_BIN: ${{ github.workspace }}/backend/.venv/bin/python
         run: backend-node/scripts/schema-diff.sh --self-test
+
+  stack-switch:
+    name: Stack Switch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect stack-relevant changes
+        id: changes
+        run: python3 .github/ci/changes.py
+
+      - name: Skip stack switch checks
+        if: steps.changes.outputs.run_stack_switch == 'false'
+        run: echo "No stack-relevant changes; skipping the stack switch checks."
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # C1, C2, C4, C17 and C18: each case brings a Compose project up on random host ports.
+      - name: Run the stack cases with Docker Compose
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        run: node --test --test-name-pattern='^C(1|2|4|17|18) ' scripts/stack/stack.test.mjs

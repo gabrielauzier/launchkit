@@ -52,6 +52,13 @@ class NodeBackendJobsTest(unittest.TestCase):
         self.assertIn("backend-node/scripts/schema-diff.sh --self-test", block)
 
 
+class StackJobsTest(unittest.TestCase):
+    def test_stack_switch_runs_cases_1_2_4_17_18(self):
+        block = job_block("stack-switch")
+        self.assertIn("node --test --test-name-pattern='^C(1|2|4|17|18) ' scripts/stack/stack.test.mjs", block)
+        self.assertIn("steps.changes.outputs.run_stack_switch", block)
+
+
 class ChangesWiringTest(unittest.TestCase):
     def test_new_jobs_read_run_backend_node(self):
         for name in ("backend-node-tests", "contract", "schema-diff"):
@@ -78,6 +85,12 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("file: ./backend-node/Dockerfile", node)
         self.assertRegex(text, r"needs: \[build-backend, build-backend-node, build-frontend\]")
 
+
+    def test_stack_jobs_read_their_outputs(self):
+        for name, output in (("stack-switch", "run_stack_switch"),):
+            with self.subTest(job=name):
+                self.assertIn(f"steps.changes.outputs.{output}", job_block(name))
+                self.assertIn("python3 .github/ci/changes.py", job_block(name))
 
 if __name__ == "__main__":
     unittest.main()

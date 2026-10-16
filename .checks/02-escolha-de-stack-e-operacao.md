@@ -181,3 +181,9 @@ Proof: `python3 .github/ci/test_workflow_jobs.py ChangesWiringTest.test_stack_jo
 ## Handoff
 
 Corte: S1-S5 somam ~78k de piso (18 + 15 + 20 + 14 + 11) e, com a iteração (logs de build, retries), ~150k estimado; cabe em um batch pela aritmética, mas S3 não pode ser fechada enquanto C3, C12 e C13 estiverem **bloqueados** (ver acima). Corte real: **Batch 1 = S1, S2, S4, S5 (menos o que depende de S3)** e S3 espera a decisão do usuário. Dentro de S1, C3 também espera.
+
+### Batch 1 fechado
+
+- **Onde o limite caiu:** C1, C2, C4, C5, C6 (S1), C7, C8, C9, C10, C11 (S2), C17, C18, C19 (S4), C20 e C22 (S5) fechados nos commits `ebc11c5` (Compose, Dockerfile, scheduler), `5e810ee` (Helm, release, install.sh), o commit de `test(stack)` (C17-C19) e o de CI (`stack-switch`, `changes.py`). **Abertos:** C3 (Compose não compara o valor; BLOCKED), C12 e C13 (o `grep` literal sobre `.` casa arquivos legítimos; BLOCKED), C14, C15, C16 e C21 (dependem de `scripts/select-stack.mjs`, que não foi escrito: o desenho dos marcadores e do que a ferramenta apaga depende da decisão sobre C12/C13). S3 inteira + C21 formam o batch 2.
+- **O que o usuário resolveu no meio:** nada além das decisões iniciais (registry adiado, árvore suja recusada, só Docker em CI, mecanismo do Compose à escolha do build).
+- **O que foi abandonado:** `profiles` com interpolação (não compara valores; sem `.env` nada sobe) e overlay por `COMPOSE_FILE`; guarda com `env_file` por stack (falta de arquivo erra antes da mensagem) e `required: false` no `include` (a mensagem do `:?` não é alcançável); `project_directory` obriga `extends.file` relativo à raiz e caminhos de `common.yml` relativos a `compose/<env>/`. Correção de fato no checklist: a tabela é `user_passkeys`, não `passkeys`. O `actionlint` já apontava SC2086 em `release.yml` (`helm push`), corrigido com aspas para o C14 poder passar.
