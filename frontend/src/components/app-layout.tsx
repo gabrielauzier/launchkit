@@ -9,6 +9,7 @@ import { admin as adminApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/build-info'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { isDesktop, getDesktopApi } from '@/lib/platform'
 import { navItems, visibleNavItems, type NavItem } from '@/lib/nav-items'
 import { ShellLogo } from '@/components/shell-logo'
 import { UpdateAvailableBanner } from '@/components/update-available-banner'
@@ -46,6 +47,8 @@ function NavSkeleton() {
 
 const headerButton =
   'text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent'
+const DRAG_REGION = '[-webkit-app-region:drag]'
+const NO_DRAG_REGION = '[-webkit-app-region:no-drag]'
 const collapsedHeaderButton =
   'lg:flex lg:h-9 lg:w-9 lg:items-center lg:justify-center lg:p-0 lg:[&>svg]:h-[18px] lg:[&>svg]:w-[18px]'
 
@@ -83,6 +86,10 @@ export function AppLayout() {
     () => visibleNavItems(navItems, isEnabled),
     [isEnabled],
   )
+  // macOS desktop hides the native title bar, so the header becomes the drag area.
+  const dragHeader = isDesktop() && getDesktopApi().platform === 'darwin'
+  const drag = dragHeader ? DRAG_REGION : undefined
+  const noDrag = dragHeader ? NO_DRAG_REGION : undefined
   const isMac =
     typeof navigator !== 'undefined' &&
     /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -100,30 +107,30 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile header */}
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 bg-sidebar border-b border-sidebar-border px-4 lg:hidden">
+      <header className={cn('sticky top-0 z-40 flex h-14 items-center gap-3 bg-sidebar border-b border-sidebar-border px-4 lg:hidden', drag, dragHeader && 'pl-20')}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="text-sidebar-muted hover:text-sidebar-foreground transition-colors"
+          className={cn('text-sidebar-muted hover:text-sidebar-foreground transition-colors', noDrag)}
           aria-label={t('app.toggleMenu')}
         >
           <Menu size={20} />
         </button>
         <Link
           to="/"
-          className="flex items-center gap-2 -mx-1 px-1 py-1 rounded-md hover:bg-sidebar-accent transition-colors"
+          className={cn('flex items-center gap-2 -mx-1 px-1 py-1 rounded-md hover:bg-sidebar-accent transition-colors', noDrag)}
           aria-label={t('app.name')}
         >
           <ShellLogo size={22} className="text-primary shrink-0" />
           <span className="font-bold text-sidebar-foreground">{t('app.name')}</span>
         </Link>
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => setPaletteOpen(true)} className={headerButton} title={t('cmdk.triggerAria')} aria-label={t('cmdk.triggerAria')}>
+          <button onClick={() => setPaletteOpen(true)} className={cn(headerButton, noDrag)} title={t('cmdk.triggerAria')} aria-label={t('cmdk.triggerAria')}>
             <Search size={18} />
           </button>
-          <button onClick={togglePrivacyMode} className={headerButton} title={privacyLabel} aria-label={privacyLabel}>
+          <button onClick={togglePrivacyMode} className={cn(headerButton, noDrag)} title={privacyLabel} aria-label={privacyLabel}>
             {privacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <button onClick={toggleTheme} className={headerButton} title={themeLabel} aria-label={themeLabel}>
+          <button onClick={toggleTheme} className={cn(headerButton, noDrag)} title={themeLabel} aria-label={themeLabel}>
             {isDark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
@@ -146,16 +153,19 @@ export function AppLayout() {
             collapsed ? 'lg:w-16' : 'lg:w-60',
           )}
         >
+          {dragHeader && <div aria-hidden className={cn('h-7 shrink-0', drag)} />}
+
           {/* Collapsed on desktop, the header becomes a column: logo on
               top, then the same buttons stacked, so nothing the expanded
               header offers goes missing in the rail. */}
           <div className={cn(
             'flex h-16 min-h-16 items-center justify-between px-5 border-b border-sidebar-border shrink-0',
             collapsed && 'lg:h-auto lg:min-h-0 lg:flex-col lg:justify-center lg:gap-2 lg:px-0 lg:py-3',
+            drag,
           )}>
             <Link
               to="/"
-              className="flex items-center gap-2.5 -mx-1 px-1 py-1 rounded-md hover:bg-sidebar-accent transition-colors"
+              className={cn('flex items-center gap-2.5 -mx-1 px-1 py-1 rounded-md hover:bg-sidebar-accent transition-colors', noDrag)}
               onClick={() => setSidebarOpen(false)}
               aria-label={t('app.name')}
             >
@@ -167,7 +177,7 @@ export function AppLayout() {
             <div className={cn('flex items-center gap-0.5', collapsed && 'lg:flex-col lg:gap-1')}>
               <button
                 onClick={togglePrivacyMode}
-                className={cn(headerButton, collapsed && collapsedHeaderButton)}
+                className={cn(headerButton, collapsed && collapsedHeaderButton, noDrag)}
                 title={privacyLabel}
                 aria-label={privacyLabel}
               >
@@ -175,7 +185,7 @@ export function AppLayout() {
               </button>
               <button
                 onClick={toggleTheme}
-                className={cn(headerButton, collapsed && collapsedHeaderButton)}
+                className={cn(headerButton, collapsed && collapsedHeaderButton, noDrag)}
                 title={themeLabel}
                 aria-label={themeLabel}
               >
@@ -271,9 +281,9 @@ export function AppLayout() {
             </nav>
           </div>
 
-          {openUpdateDialog && (
+          {(openUpdateDialog || isDesktop()) && (
             <div className={cn(collapsed && 'lg:hidden')}>
-              <UpdateAvailableBanner onOpen={openUpdateDialog} />
+              <UpdateAvailableBanner onOpen={openUpdateDialog ?? (() => {})} />
             </div>
           )}
 

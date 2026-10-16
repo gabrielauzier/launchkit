@@ -4,6 +4,7 @@ import type { AxiosError } from 'axios'
 
 import LoginPage from '@/pages/login'
 import { renderWithProviders, t } from '@/test/utils'
+import type { LaunchkitApi } from '@/lib/platform'
 
 const navigate = vi.hoisted(() => vi.fn())
 vi.mock('react-router-dom', async (importOriginal) => ({
@@ -227,6 +228,43 @@ describe('LoginPage', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(api.auth.verifyPasskeyAuthentication).not.toHaveBeenCalled()
+  })
+
+  it('hides passkey controls when running on desktop', async () => {
+    // The browser could do passkeys; the desktop origin (app://launchkit) cannot match the server's RP ID.
+    webauthn.isPasskeySupported.mockReturnValue(true)
+    webauthn.isConditionalPasskeySupported.mockResolvedValue(true)
+    const desktopApi: LaunchkitApi = {
+      isDesktop: true,
+      platform: 'darwin',
+      appVersion: '0.1.0',
+      getServerUrl: vi.fn(),
+      setServerUrl: vi.fn(),
+      openExternal: vi.fn(),
+      onUpdateAvailable: vi.fn(() => () => {}),
+      installUpdate: vi.fn(),
+    }
+    Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
+    try {
+      authContext.login.mockResolvedValue({
+        requires_2fa: true,
+        temp_token: 'temp',
+        available_methods: ['passkey', 'totp'],
+      })
+      const { user } = await renderLogin()
+
+      expect(screen.queryByRole('button', { name: t('auth.loginWithPasskey') })).not.toBeInTheDocument()
+      await user.type(screen.getByLabelText(t('auth.email')), 'tassio@example.com')
+      await user.type(screen.getByLabelText(t('auth.password')), 'secret')
+      await user.click(screen.getByRole('button', { name: t('auth.login') }))
+
+      expect(await screen.findByLabelText(t('auth.twoFactor'))).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: t('auth.passkeyMethod') })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: t('auth.usePasskeySecondFactor') })).not.toBeInTheDocument()
+      expect(api.auth.passkeyAuthenticationOptions).not.toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(window, 'launchkit')
+    }
   })
 
   it('survives the optional config calls failing', async () => {
