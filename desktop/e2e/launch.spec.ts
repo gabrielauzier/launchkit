@@ -51,24 +51,10 @@ test('second instance exits 0 and leaves one window', async () => {
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
 })
 
-test('opens without network and shows no update error dialog', async () => {
+test('opens with an unreachable server and shows one window', async () => {
   // An address nothing listens on: the app has no network to reach its server.
+  // This is not a proof for C27: the app runs unpackaged here, so the updater never starts.
   const { app, page } = await launchApp({ serverUrl: 'http://127.0.0.1:9' })
-  const dialogCalls = await app.evaluate(({ dialog }) => {
-    const calls: string[] = []
-    for (const name of ['showErrorBox', 'showMessageBox', 'showMessageBoxSync'] as const) {
-      const original = dialog[name] as (...args: unknown[]) => unknown
-      ;(dialog as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
-        calls.push(name)
-        return original.apply(dialog, args)
-      }
-    }
-    ;(globalThis as { __dialogCalls?: string[] }).__dialogCalls = calls
-    return calls.length
-  })
-  expect(dialogCalls).toBe(0)
   expect(page.url().startsWith('app://launchkit/')).toBe(true)
-  await page.waitForTimeout(2000)
-  expect(await app.evaluate(() => (globalThis as { __dialogCalls?: string[] }).__dialogCalls ?? ['missing'])).toEqual([])
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
 })

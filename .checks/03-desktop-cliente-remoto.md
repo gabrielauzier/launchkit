@@ -160,10 +160,10 @@ Proof: `cd desktop && npx playwright test e2e/connect.spec.ts -g "switching serv
 ### S3 - Entrar e usar · C11-C15 · 9 arquivos existentes · 89 KB · piso ~22k · estimativa ~89k
 
 **C11a** - Contra o servidor Python (Docker), e-mail e senha levam a `/` e `GET /api/users/me` retorna 200 pelo app
-Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "logs in with password"`
+Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "^logs in with password$"`
 
 **C11b** - Contra o servidor Python, e-mail, senha e TOTP levam a `/` e `GET /api/users/me` retorna 200 pelo app
-Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "logs in with password and TOTP"`
+Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<python> npx playwright test e2e/real-server.spec.ts -g "^logs in with password and TOTP$"`
 
 **C11c** - Contra o servidor Node, os mesmos dois fluxos passam (depende da task 1, ausente desta base: proof pendente)
 Proof: `cd desktop && LAUNCHKIT_E2E_SERVER_URL=<node> npx playwright test e2e/real-server.spec.ts` (pendente até a task 1 chegar na base)
@@ -244,10 +244,10 @@ Proof: pendente - exige app assinado e repositório de releases de teste; ver `L
 
 **C27** - Sem rede, o app abre normalmente e nenhum diálogo de erro de atualização aparece
 Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "swallows update check errors without dialogs"`
-Proof: `cd desktop && npx playwright test e2e/launch.spec.ts -g "opens without network and shows no update error dialog"`
 
 **C28** - Em build sem assinatura, o `autoUpdater` não é iniciado
 Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "does not start the autoUpdater for unsigned builds"`
+Proof: `cd desktop && npx vitest run scripts/release-signing.test.ts` (roda o passo do `desktop-release.yml` por sistema e passa o valor padrão ao `createUpdater`: Linux e Windows sem certificado ficam sem updater; macOS sem segredos falha o release)
 
 **C29a** - Com `isDesktop`, o renderer não faz requisição a `api.github.com`
 Proof: `cd frontend && npx vitest run src/hooks/use-latest-release.test.tsx -t "does not call api.github.com on desktop"`
@@ -304,7 +304,8 @@ Proof: pendente - job `desktop-e2e` no CI; ver `Local proof limits`
 Proof: `python3 .github/ci/test_changes.py CIChangesTest.test_run_desktop_selection`
 
 **C38a** - O bundle do build web não referencia `window.launchkit` além de `window.launchkit?.isDesktop`
-Proof: `cd frontend && npx vite build --outDir ../.checks/tmp-web-dist && node ../desktop/scripts/check-web-bundle.mjs ../.checks/tmp-web-dist`
+Proof: `cd desktop && npx vitest run scripts/check-web-bundle.test.ts` (positivo e negativo, inclusive `globalThis.launchkit` e `window['launchkit']`)
+Proof: `cd desktop && npm run check:web-bundle` (constrói o web num diretório temporário e roda a guarda; o job `desktop-checks` a executa)
 
 **C38b** - Os testes do frontend passam sem alteração de comportamento
 Proof: `cd frontend && npm test`
@@ -350,13 +351,16 @@ Ambiente: macOS arm64, Node 22, Docker. Linux e Windows só no CI. **Não existe
 - C26b - o `autoUpdater` do macOS (Squirrel.Mac) exige app assinado e uma release N+1 num repositório de teste. Entrega: C26a prova o caminho do evento até o banner e `installUpdate`.
 - C36c - Windows e Linux só no job de CI.
 - C11c - servidor Node é da task 1, fora desta base. C11a e C11b passam contra o backend Python em Docker (`t03-*`).
+- C11a e C11b só rodam com `LAUNCHKIT_E2E_SERVER_URL` definida; sem ela (o caso do `desktop-e2e` no CI) ficam `skipped`. A prova deles é manual, contra o servidor Python em Docker, e o CI não os cobre.
+- C27 - o app roda desempacotado no Playwright e `updater.start()` retorna na hora (`packaged` falso), então nenhum e2e exerce o updater sem rede. O proof de C27 é só o teste de unidade `swallows update check errors without dialogs`; o teste de `launch.spec.ts` (`opens with an unreachable server and shows one window`) cobre apenas abrir com o servidor inalcançável e não é proof de C27. Sem gancho de teste no código de produção.
 - C1, C22, C23 no nível "app empacotado/instalado": o spec aceita `LAUNCHKIT_E2E_EXECUTABLE` para rodar o mesmo teste contra o `.app` gerado por `package:dir` (batch 3); no batch 1 o proof roda no app não empacotado (`out/`), e essa diferença está registrada aqui.
 - Batch 3, app empacotado: o fuse `enableNodeCliInspectArguments: false` impede o Playwright de se anexar ao `.app` (`Process failed to launch`), então `LAUNCHKIT_E2E_EXECUTABLE` não roda o Playwright contra o empacotado. Evidência no lugar: `package:dir` gera o app (assinatura ad hoc com `-c.mac.identity=-`, porque o arm64 mata um binário com fuses trocados e sem assinatura); executei o binário com `--remote-debugging-port` e ele serviu `app://launchkit/` com o título `launchkit`, lendo o frontend de `Resources/frontend`; `scripts/fuses.test.ts` lê os fuses do pacote. Isso é manual e não é um proof nomeado.
 - Batch 3, C23b: o proof prova a configuração (parse do YAML). Os cinco artefatos (`dmg`, `zip`, `nsis`, `AppImage`, `deb`) não foram construídos aqui; só `--dir` no macOS arm64.
 - Batch 3, C36c e CI de Linux: o `launchArgs` acrescenta `--no-sandbox` só em Linux com `CI` e o job usa `xvfb-run`; nenhum dos dois pôde ser executado localmente. Windows: sem execução.
 - Batch 3, C30b: o proof como está escrito (`-g "Cmd or Ctrl+K opens the command palette"`) não encontra o teste, porque `-g` é uma expressão regular e `Ctrl+K` pede um ou mais `l` seguidos de `K`. O teste existe com esse título e passa com `-g "Cmd or Ctrl\+K opens the command palette"`.
 - Batch 3, C37 e C38a: provados localmente; o `desktop-checks` e o `desktop-e2e` em si só rodam no GitHub Actions (YAML validado só por parse com `yaml` e pelos testes de forma).
-- Batch 3, updater em Linux: `LAUNCHKIT_DESKTOP_SIGNED` é `true` em Linux por padrão (pacotes Linux não têm assinatura a verificar) e depende dos segredos em macOS e Windows; decisão minha, não discutida com o usuário.
+- Updater e assinatura (correção pós-verificação, decisão do usuário): `LAUNCHKIT_DESKTOP_SIGNED` é `false` em Linux sempre (não há assinatura real), e `true` só em macOS e Windows com certificado; o release de macOS falha sem os cinco segredos de assinatura e notarização (Windows sem certificado publica sem assinatura e sem updater). `release-signing.test.ts` executa o passo do workflow por sistema; o build real e a publicação seguem pendentes (C23c).
+- `scripts/fuses.test.ts` pula sem `release/` fora do CI; com `CI` definida a ausência do app falha. No `desktop-checks` o `package:dir` roda antes de `npm test`.
 
 ## Handoff
 
@@ -393,5 +397,13 @@ Corte (slices inteiras, nunca no meio):
 ### Fechamento do batch 3 (S5 + S6 + S7)
 
 - **Onde o limite caiu:** C23a, C23b, C26a, C27, C28, C29a, C29b (S5); C30a, C30b, C31a, C31b, C32, C33a, C33b, C34 (S6); C35, C36a, C36b, C37, C38a, C38b (S7) fechados, cada proof rodado pelo nome e verde (o de C30b só com `Ctrl\+K` escapado, ver `Local proof limits`). Sem proof local: C23c, C24, C25, C26b, C36c (sem certificados, sem repositório de releases e sem Windows/Linux) e C11c (task 1). Último commit de código: `f5e3f44` (S5 `552f990`, S6 `ffdb348`, S7 `f5e3f44`; as linhas de `Landing` do batch entraram em `0d00e88`, a de correção do arrasto no macOS junto do fechamento). Suítes: `desktop` 64 testes de unidade e 26 de Playwright (2 pulados do servidor real), `frontend` 469 testes, `test_changes.py` 8 testes. Próximo passo: o Verifier sobre `91cc000..HEAD`.
-- **O que o usuário já decidiu (sem decisão nova no batch):** nenhuma pergunta ao usuário. Decisões minhas, em `Landing` antes do código: divisão do repositório de releases em duas variáveis de ambiente, `__SIGNED_BUILD__`, banner separado por plataforma, `extraResources`, `author` com e-mail `noreply@launchkit.invalid` (trocar no go-live), estado da janela, classes de arrasto, downloads por arquivo temporário, menu, `run_desktop` e jobs de CI. Leituras sem linha de `Landing`: Linux conta como assinado no updater; `--no-sandbox` e `xvfb-run` para o job Linux; o item de Ajuda abre `https://github.com/gabrielauzier/launchkit`; `package:dir` e `package:unsigned` usam `-c.mac.identity=-`.
+- **O que o usuário já decidiu (sem decisão nova no batch):** nenhuma pergunta ao usuário. Decisões minhas, em `Landing` antes do código: divisão do repositório de releases em duas variáveis de ambiente, `__SIGNED_BUILD__`, banner separado por plataforma, `extraResources`, `author` com e-mail `noreply@launchkit.invalid` (trocar no go-live), estado da janela, classes de arrasto, downloads por arquivo temporário, menu, `run_desktop` e jobs de CI. Leituras sem linha de `Landing`: `--no-sandbox` e `xvfb-run` para o job Linux; o item de Ajuda abre `https://github.com/gabrielauzier/launchkit`; `package:dir` e `package:unsigned` usam `-c.mac.identity=-`.
 - **O que foi abandonado:** `-c.mac.identity=null` (o arm64 mata o app com fuses trocados e sem assinatura; `-` assina ad hoc); Playwright contra o `.app` empacotado (o fuse de inspeção impede); `style={{WebkitAppRegion}}` (o jsdom descarta a propriedade; viraram classes); provar `api.github.com` só pela lista de requisições do Playwright (a CSP bloqueia antes da rede e o teste passava com o código errado; o teste lê também as mensagens de console da CSP, e foi verificado contra o código revertido); `yaml` não estava instalado: entrou como devDependency do desktop.
+
+### Correções pós-verificação (batch 3)
+
+- **Decididas pelo usuário:** (1) Linux nunca conta como assinado: `LAUNCHKIT_DESKTOP_SIGNED=false`, updater desligado, critério 28 como escrito (a leitura do batch 3 de que Linux era assinado está revogada); (2) o release de macOS falha sem os segredos de assinatura e notarização, sem publicar dmg/zip e sem `-c.mac.identity=-`. Ambas com linha de `Landing` antes do código.
+- **C27:** o e2e não exercia o updater (app desempacotado; `updater.start()` retorna na hora). O proof é só o teste de unidade; o spec de `launch.spec.ts` foi renomeado para o que de fato prova (abrir com servidor inalcançável) e saiu do checklist como proof de C27.
+- **C38a:** `check-web-bundle.mjs` passou a ter testes, casa `globalThis.launchkit` e `window['launchkit']`, e roda no `desktop-checks` por `npm run check:web-bundle`.
+- **Proofs:** C11a e C11b com regex ancorado; `fuses.test.ts` falha em CI sem `release/`; `release-workflow.test.ts` afirma divisão owner/repo, `signed=false` em Linux e os `latest*.yml`; C11a e C11b declarados como não cobertos pelo CI em `Local proof limits`.
+- **Ainda pendente (sem mudança):** C23c, C24, C25, C26b, C36c, C11c.
