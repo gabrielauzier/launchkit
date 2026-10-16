@@ -66,6 +66,7 @@ Toca: pacote novo `desktop/` (main, preload, shared, e2e); `frontend/` ganha `sr
 | Release macOS sem segredos (decisão do usuário) | o passo de resolução do `desktop-release.yml` falha no macOS (`::error::` com a lista dos segredos que faltam: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) antes do build, e nada é publicado; o release nunca usa `-c.mac.identity=-`; `package:dir` e `package:unsigned` locais seguem com a assinatura ad hoc. Windows sem certificado continua publicando sem assinatura, com `signed=false` | publicar dmg/zip sem assinatura nem notarização (o Gatekeeper recusa e o updater não roda); assinar ad hoc no release |
 | Proof de C27 (updater sem rede) | o proof é o teste de unidade de `updater.test.ts`; o e2e roda o app desempacotado, onde `updater.start()` retorna na hora, então não exerce o updater e deixa de ser citado como proof; sem gancho de teste no código de produção | espião de `dialog` no e2e (passa mesmo com o updater quebrado) |
 | Guarda do bundle no CI (C38a, corrige a linha anterior) | `desktop/package.json` ganha `check:web-bundle` (build web em diretório temporário e `check-web-bundle.mjs`) e o job `desktop-checks` o roda depois do build web, em edição aditiva do `ci.yml`; o script casa `window.launchkit`, `window['launchkit']`, `window["launchkit"]` e `globalThis.launchkit` fora de `?.isDesktop`, com testes positivo e negativo | script sem chamada (a guarda não rodava em lugar nenhum) |
+| Segredos de assinatura por sistema (correção pós-verificação, rodada 2) | no passo de publicação do `desktop-release.yml`, `CSC_LINK`, `CSC_KEY_PASSWORD` e `APPLE_*` só chegam ao macOS (`runner.os == 'macOS'`), e `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` só ao Windows, porque o electron-builder usa `CSC_LINK` no Windows quando `WIN_CSC_LINK` não existe; o passo de resolução exige `WIN_CSC_LINK` e `WIN_CSC_KEY_PASSWORD` para `signed=true` no Windows. Provas: `release-signing.test.ts` e `release-workflow.test.ts` | passar `CSC_*` a todos os sistemas (o Windows assinaria com o certificado do macOS enquanto o passo decidiu `signed=false`) |
 
 - Linhas adicionais de `Landing` descobertas durante o build entram aqui, antes do código que as fecha.
 
@@ -216,7 +217,7 @@ Proof: `cd desktop && npx vitest run src/main/app-protocol.test.ts -t "sends a s
 Proof: `cd desktop && npx playwright test e2e/security.spec.ts -g "app responses carry the content security policy"`
 
 **C22** - `@electron/fuses read` no app empacotado: `RunAsNode` e `EnableNodeCliInspectArguments` desligados; `EnableEmbeddedAsarIntegrityValidation` e `OnlyLoadAppFromAsar` ligados
-Proof: `cd desktop && npm run package:dir && npx vitest run scripts/fuses.test.ts -t "packaged app fuses"` (build sem assinatura, macOS local; Linux e Windows no CI)
+Proof: `cd desktop && npm run package:dir && npx vitest run scripts/fuses.test.ts -t "packaged app fuses"` (build com assinatura ad hoc, macOS local; o `desktop-checks` repete `package:dir` e `fuses.test.ts` em `ubuntu-latest`; Windows não roda nenhum dos dois em lugar nenhum e não foi verificado)
 
 ### S5 - Instalar e atualizar · C23-C29 · 6 arquivos existentes · 36 KB · piso ~9k · estimativa ~45k
 
@@ -344,7 +345,7 @@ Proof: `cd frontend && npm test`
 
 ## Local proof limits
 
-Ambiente: macOS arm64, Node 22, Docker. Linux e Windows só no CI. **Não existem** conta Apple Developer, certificado Windows, nem repositório de releases do desktop (Unresolved 1 e 2). Não declaro proof verde onde ele não roda:
+Ambiente: macOS arm64, Node 22, Docker. Linux só no CI (`ubuntu-latest`); Windows só roda o `desktop-e2e`, sem `package:dir` nem leitura de fuses. **Não existem** conta Apple Developer, certificado Windows, nem repositório de releases do desktop (Unresolved 1 e 2). Não declaro proof verde onde ele não roda:
 
 - C24, C25 - sem certificados. Entrega: configuração de assinatura e notarização no `electron-builder.yml` e no `desktop-release.yml`, lidos de segredos; builds sem assinatura circulam só para uso interno, com atualização desligada (C28).
 - C23c - tag real e GitHub Releases. Entrega: workflow com parse do YAML validado (C23a) e build local sem assinatura (`electron-builder --dir`).
@@ -360,6 +361,7 @@ Ambiente: macOS arm64, Node 22, Docker. Linux e Windows só no CI. **Não existe
 - Batch 3, C30b: o proof como está escrito (`-g "Cmd or Ctrl+K opens the command palette"`) não encontra o teste, porque `-g` é uma expressão regular e `Ctrl+K` pede um ou mais `l` seguidos de `K`. O teste existe com esse título e passa com `-g "Cmd or Ctrl\+K opens the command palette"`.
 - Batch 3, C37 e C38a: provados localmente; o `desktop-checks` e o `desktop-e2e` em si só rodam no GitHub Actions (YAML validado só por parse com `yaml` e pelos testes de forma).
 - Updater e assinatura (correção pós-verificação, decisão do usuário): `LAUNCHKIT_DESKTOP_SIGNED` é `false` em Linux sempre (não há assinatura real), e `true` só em macOS e Windows com certificado; o release de macOS falha sem os cinco segredos de assinatura e notarização (Windows sem certificado publica sem assinatura e sem updater). `release-signing.test.ts` executa o passo do workflow por sistema; o build real e a publicação seguem pendentes (C23c).
+- C22 (fuses): lidos localmente no macOS e no CI em Linux (`desktop-checks`); Windows não verificado (o `desktop-release` empacota no Windows, mas nenhum teste lê os fuses lá).
 - `scripts/fuses.test.ts` pula sem `release/` fora do CI; com `CI` definida a ausência do app falha. No `desktop-checks` o `package:dir` roda antes de `npm test`.
 
 ## Handoff
