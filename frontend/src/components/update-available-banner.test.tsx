@@ -23,6 +23,7 @@ function installDesktopApi() {
       }
     }),
     installUpdate: vi.fn(async () => {}),
+    startSso: vi.fn(async () => {}),
   }
   Object.defineProperty(window, 'launchkit', { value: api, configurable: true })
   return { api, emit: (version: string) => listener?.({ version }) }

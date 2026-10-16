@@ -15,6 +15,7 @@ function installDesktopApi(serverUrl: string | null) {
     openExternal: vi.fn(async () => {}),
     onUpdateAvailable: vi.fn(() => () => {}),
     installUpdate: vi.fn(async () => {}),
+    startSso: vi.fn(async () => {}),
   }
   Object.defineProperty(window, 'launchkit', { value: api, configurable: true })
   return api

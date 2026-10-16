@@ -7,7 +7,7 @@ export type SetServerUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'invalid-url' | 'insecure' | 'unreachable' }
 
-/** Mirrors desktop/src/shared/ipc.ts: exactly these eight members. */
+/** Mirrors desktop/src/shared/ipc.ts: exactly these nine members. */
 export interface LaunchkitApi {
   isDesktop: true
   platform: string
@@ -17,6 +17,7 @@ export interface LaunchkitApi {
   openExternal(url: string): Promise<void>
   onUpdateAvailable(callback: (info: { version: string }) => void): () => void
   installUpdate(): Promise<void>
+  startSso(): Promise<void>
 }
 
 declare global {
@@ -24,9 +25,6 @@ declare global {
     launchkit?: LaunchkitApi
   }
 }
-
-/** Where the system browser sends the user back to after an SSO sign-in (see desktop/src/main/deep-link.ts). */
-export const DESKTOP_SSO_REDIRECT = 'launchkit://auth/callback'
 
 export function isDesktop(): boolean {
   return window.launchkit?.isDesktop === true

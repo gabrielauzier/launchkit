@@ -25,6 +25,7 @@ function desktopApi(): LaunchkitApi {
     openExternal: vi.fn(),
     onUpdateAvailable: vi.fn(() => () => {}),
     installUpdate: vi.fn(),
+    startSso: vi.fn(async () => {}),
   }
 }
 

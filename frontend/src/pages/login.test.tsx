@@ -243,6 +243,7 @@ describe('LoginPage', () => {
       openExternal: vi.fn(),
       onUpdateAvailable: vi.fn(() => () => {}),
       installUpdate: vi.fn(),
+      startSso: vi.fn(async () => {}),
     }
     Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
     try {
@@ -283,8 +284,6 @@ describe('LoginPage', () => {
 })
 
 describe('LoginPage SSO', () => {
-  const SSO_URL = 'https://srv.example.com/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback'
-
   function installDesktopApi(serverUrl: string | null) {
     const desktopApi: LaunchkitApi = {
       isDesktop: true,
@@ -295,6 +294,7 @@ describe('LoginPage SSO', () => {
       openExternal: vi.fn(async () => {}),
       onUpdateAvailable: vi.fn(() => () => {}),
       installUpdate: vi.fn(),
+      startSso: vi.fn(async () => {}),
     }
     Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
     return desktopApi
@@ -318,8 +318,7 @@ describe('LoginPage SSO', () => {
       const { user } = await renderLogin()
       await user.click(await screen.findByRole('button', { name: t('auth.loginWithProvider', { provider: 'Pocket ID' }) }))
 
-      await waitFor(() => expect(desktopApi.openExternal).toHaveBeenCalledTimes(1))
-      expect(desktopApi.openExternal).toHaveBeenCalledWith(SSO_URL)
+      await waitFor(() => expect(desktopApi.startSso).toHaveBeenCalledTimes(1))
       expect(location.stub.href).toBe('app://launchkit/login')
     } finally {
       location.restore()

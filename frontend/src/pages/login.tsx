@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import type { AxiosError } from 'axios'
-import { DESKTOP_SSO_REDIRECT, getDesktopApi, isDesktop } from '@/lib/platform'
+import { getDesktopApi, isDesktop } from '@/lib/platform'
 import { isServerUnreachable } from '@/lib/auth-errors'
 import { resolveLocalAuthEnabled } from '@/lib/auth-config-utils'
 import { useTheme } from 'next-themes'
@@ -210,13 +210,8 @@ export default function LoginPage() {
   const handleOIDCLogin = async () => {
     conditionalPasskeyAbortRef.current?.abort()
     if (isDesktop()) {
-      // The provider is opened in the system browser; it returns through launchkit://auth/callback.
-      const desktop = getDesktopApi()
-      const serverUrl = await desktop.getServerUrl()
-      if (serverUrl) {
-        const target = encodeURIComponent(DESKTOP_SSO_REDIRECT)
-        await desktop.openExternal(`${serverUrl.replace(/\/+$/, '')}/api/auth/oidc/login?redirect_target=${target}`)
-      }
+      // The main process opens the provider in the system browser; the sign-in returns through launchkit://auth/callback.
+      await getDesktopApi().startSso()
       return
     }
     window.location.href = '/api/auth/oidc/login'
