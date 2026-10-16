@@ -43,6 +43,19 @@ describe('updater', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('attaches a handler to the rejected check so no unhandledRejection reaches the main process', async () => {
+    const { autoUpdater, updater } = setup()
+    const rejection = Promise.reject(new Error('net::ERR_INTERNET_DISCONNECTED'))
+    // A rejection nobody observes is what Electron turns into an error dialog.
+    const observed = vi.spyOn(rejection, 'then')
+    autoUpdater.checkForUpdates.mockReturnValue(rejection)
+
+    updater.start()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(observed).toHaveBeenCalled()
+  })
+
   it('does not start the autoUpdater for unsigned builds', () => {
     for (const options of [{ signed: false }, { packaged: false }]) {
       const { autoUpdater, updater } = setup(options)
