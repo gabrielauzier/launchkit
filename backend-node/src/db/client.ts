@@ -1,4 +1,6 @@
+import { PGlite } from '@electric-sql/pglite'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import pg from 'pg'
 import * as schema from './schema.ts'
@@ -18,6 +20,16 @@ export function connectPostgres(connectionString: string): DatabaseHandle {
   return {
     db: drizzle(pool, { schema }) as unknown as Database,
     close: () => pool.end(),
+  }
+}
+
+/** PGlite (PostgreSQL in WASM) in `dataDir`: the database of the desktop app's local mode. */
+export async function connectPglite(dataDir: string): Promise<DatabaseHandle> {
+  const client = new PGlite(dataDir)
+  await client.waitReady
+  return {
+    db: drizzlePglite(client, { schema }) as unknown as Database,
+    close: () => client.close(),
   }
 }
 

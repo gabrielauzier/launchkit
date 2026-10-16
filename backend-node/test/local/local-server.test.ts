@@ -1,0 +1,67 @@
+import { mkdtempSync } from 'node:fs'
+import { type AddressInfo, createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { type LocalServer, startLocalServer } from '../../src/local/local-server.ts'
+
+const TOKEN = 'b'.repeat(64)
+const open: LocalServer[] = []
+
+function options(extra: Partial<Parameters<typeof startLocalServer>[0]> = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'launchkit-local-'))
+  return { dataDir: join(root, 'db'), filesDir: join(root, 'files'), secretKey: 'local-test-secret', sessionToken: TOKEN, logger: false as const, ...extra }
+}
+
+async function start(extra: Partial<Parameters<typeof startLocalServer>[0]> = {}) {
+  const server = await startLocalServer(options(extra))
+  open.push(server)
+  return server
+}
+
+afterEach(async () => {
+  vi.useRealTimers()
+  delete process.env.REDIS_URL
+  while (open.length) await open.pop()!.close()
+})
+
+describe('the local server', () => {
+  it('listens on 127.0.0.1 only', async () => {
+    const server = await start()
+    expect(server.address).toBe('127.0.0.1')
+    expect(server.port).toBeGreaterThan(0)
+  })
+
+  it('never reads REDIS_URL and never connects to it', async () => {
+    let connections = 0
+    const decoy = createServer((socket) => {
+      connections += 1
+      socket.destroy()
+    })
+    await new Promise<void>((resolve) => decoy.listen(0, '127.0.0.1', resolve))
+    process.env.REDIS_URL = `redis://127.0.0.1:${(decoy.address() as AddressInfo).port}/0`
+    try {
+      const server = await start()
+      expect(server.ctx.config.redisUrl).toBeNull()
+      await fetch(`http://127.0.0.1:${server.port}/api/setup/status`, { headers: { 'x-launchkit-local-token': TOKEN } })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(connections).toBe(0)
+    } finally {
+      await new Promise((resolve) => decoy.close(resolve))
+    }
+  })
+
+  it('runs the scheduled jobs inside the process', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const lines: string[] = []
+    const server = await start({ jobLogger: { info: (message) => lines.push(message) } })
+    await vi.advanceTimersByTimeAsync(3600 * 1000)
+    await (server.ctx.jobQueue as unknown as { drain(): Promise<void> }).drain()
+    expect(lines).toContain('There are 0 users')
+  })
+
+  it('reports how many migrations it applied', async () => {
+    const first = await start()
+    expect(first.migrationsApplied).toBe(1)
+  })
+})
