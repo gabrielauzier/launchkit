@@ -152,4 +152,4 @@ This task is the record of decision. If a linked document diverges, ask before b
 
 | # | Kind | Question | Until answered |
 |---|---|---|---|
-| None | | | |
+| | | None | |
