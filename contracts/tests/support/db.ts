@@ -69,3 +69,72 @@ export async function seedUser(user: SeedUser): Promise<string> {
   )
   return id
 }
+
+export interface SeedPasskey {
+  userId: string
+  credentialId: string
+  publicKey: string
+  name?: string
+  signCount?: number
+  backedUp?: boolean | null
+}
+
+/** Inserts a passkey row the way a registration on either stack would have. */
+export async function seedPasskey(passkey: SeedPasskey): Promise<string> {
+  const { randomUUID } = await import('node:crypto')
+  const id = randomUUID()
+  await db().query(
+    `INSERT INTO user_passkeys (id, user_id, credential_id, public_key, sign_count, name, backed_up, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())`,
+    [
+      id,
+      passkey.userId,
+      passkey.credentialId,
+      passkey.publicKey,
+      passkey.signCount ?? 0,
+      passkey.name ?? 'Seeded passkey',
+      passkey.backedUp ?? null,
+    ],
+  )
+  return id
+}
+
+export async function passkeyRows(userId: string) {
+  const { rows } = await db().query('SELECT * FROM user_passkeys WHERE user_id = $1 ORDER BY created_at', [userId])
+  return rows
+}
+
+export async function userRow(email: string) {
+  const { rows } = await db().query('SELECT * FROM users WHERE lower(email) = lower($1)', [email])
+  return rows[0]
+}
+
+export async function linkOidcIdentity(email: string, issuer: string, subject: string): Promise<void> {
+  await db().query('UPDATE users SET oidc_issuer = $2, oidc_subject = $3 WHERE lower(email) = lower($1)', [
+    email,
+    issuer,
+    subject,
+  ])
+}
+
+export async function setSuperuser(email: string, value: boolean): Promise<void> {
+  await db().query('UPDATE users SET is_superuser = $2 WHERE lower(email) = lower($1)', [email, value])
+}
+
+export async function membershipRows(workspaceId: string) {
+  const { rows } = await db().query('SELECT * FROM workspace_members WHERE workspace_id = $1', [workspaceId])
+  return rows
+}
+
+export async function setWorkspaceManager(workspaceId: string, userId: string | null): Promise<void> {
+  await db().query('UPDATE workspaces SET managed_by_user_id = $2 WHERE id = $1', [workspaceId, userId])
+}
+
+export async function setMemberRole(userId: string, role: string): Promise<void> {
+  await db().query('UPDATE workspace_members SET role = $2 WHERE user_id = $1', [userId, role])
+}
+
+export async function memberRoleOf(userId: string): Promise<string[]> {
+  const { rows } = await db().query('SELECT role FROM workspace_members WHERE user_id = $1', [userId])
+  return rows.map((row) => row.role)
+}

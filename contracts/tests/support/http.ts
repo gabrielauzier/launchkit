@@ -79,6 +79,11 @@ export const peer = () => {
   return new Api(url)
 }
 
+/** Both stacks run in every contract run: cases about one named stack reach it from either subject. */
+export function stackApi(name: 'python' | 'node'): Api {
+  return inject('stack') === name ? subject() : peer()
+}
+
 let userCounter = 0
 export function uniqueEmail(label = 'user'): string {
   userCounter += 1
