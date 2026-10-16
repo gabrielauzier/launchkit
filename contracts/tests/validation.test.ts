@@ -2,10 +2,17 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { resetData } from './support/db'
 import { type Api, type Reply, bootstrapAdmin, registerUser, subject } from './support/http'
 
+interface Tokens {
+  admin: string
+  user: string
+  userId: string
+  workspaceId: string
+}
+
 interface Operation {
   name: string
   slice: string
-  call: (api: Api, tokens: { admin: string; user: string; userId: string }) => Promise<Reply>
+  call: (api: Api, tokens: Tokens) => Promise<Reply>
 }
 
 // Every operation of the contract that takes a request body, with a body that cannot be valid.
@@ -22,17 +29,59 @@ const OPERATIONS: Operation[] = [
     slice: 'S2',
     call: (a, t) => a.patch(`/api/users/${t.userId}`, { token: t.admin, json: { is_active: 'nope' } }),
   },
+  { name: 'POST /api/auth/2fa/disable', slice: 'S3', call: (a, t) => a.post('/api/auth/2fa/disable', { token: t.user, json: {} }) },
+  { name: 'POST /api/auth/2fa/enable', slice: 'S3', call: (a, t) => a.post('/api/auth/2fa/enable', { token: t.user, json: { code: 'abc' } }) },
+  { name: 'POST /api/auth/2fa/verify', slice: 'S3', call: (a) => a.post('/api/auth/2fa/verify', { json: {} }) },
+  { name: 'POST /api/auth/passkeys/2fa/options', slice: 'S3', call: (a) => a.post('/api/auth/passkeys/2fa/options', { json: {} }) },
+  { name: 'POST /api/auth/passkeys/2fa/verify', slice: 'S3', call: (a) => a.post('/api/auth/passkeys/2fa/verify', { json: {} }) },
+  {
+    name: 'POST /api/auth/passkeys/authenticate/options',
+    slice: 'S3',
+    call: (a) => a.post('/api/auth/passkeys/authenticate/options', { json: { email: 12 } }),
+  },
+  {
+    name: 'POST /api/auth/passkeys/authenticate/verify',
+    slice: 'S3',
+    call: (a) => a.post('/api/auth/passkeys/authenticate/verify', { json: {} }),
+  },
+  {
+    name: 'POST /api/auth/passkeys/register/options',
+    slice: 'S3',
+    call: (a, t) => a.post('/api/auth/passkeys/register/options', { token: t.user, json: { name: '' } }),
+  },
+  {
+    name: 'POST /api/auth/passkeys/register/verify',
+    slice: 'S3',
+    call: (a, t) => a.post('/api/auth/passkeys/register/verify', { token: t.user, json: {} }),
+  },
+  { name: 'POST /api/workspaces', slice: 'S4', call: (a, t) => a.post('/api/workspaces', { token: t.user, json: {} }) },
+  {
+    name: 'PATCH /api/workspaces/{id}',
+    slice: 'S4',
+    call: (a, t) => a.patch(`/api/workspaces/${t.workspaceId}`, { token: t.user, json: { name: '' } }),
+  },
+  {
+    name: 'POST /api/workspaces/{id}/members',
+    slice: 'S4',
+    call: (a, t) => a.post(`/api/workspaces/${t.workspaceId}/members`, { token: t.user, json: { email: 'bad' } }),
+  },
+  {
+    name: 'PATCH /api/workspaces/{id}/members/{uid}',
+    slice: 'S4',
+    call: (a, t) => a.patch(`/api/workspaces/${t.workspaceId}/members/${t.userId}`, { token: t.user, json: {} }),
+  },
 ]
 
 describe('request validation', () => {
-  let tokens: { admin: string; user: string; userId: string }
+  let tokens: Tokens
 
   beforeAll(async () => {
     await resetData()
     const api = subject()
     const admin = await bootstrapAdmin(api)
     const user = await registerUser(api)
-    tokens = { admin: admin.token, user: user.token, userId: user.id }
+    const workspaces = await api.get('/api/workspaces', { token: user.token })
+    tokens = { admin: admin.token, user: user.token, userId: user.id, workspaceId: workspaces.json[0].id }
   })
 
   it.each(OPERATIONS)('C16 invalid body is 422 in FastAPI shape: $name', async ({ call }) => {
