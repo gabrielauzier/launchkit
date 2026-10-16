@@ -32,45 +32,13 @@ Proofs do CI de PR: `python3 .github/ci/test_changes.py`, `python3 .github/ci/te
 - C20 e C21 são jobs do GitHub: localmente se prova o mesmo comando que o job chama (`node --test ... stack.test.mjs` com `-t` dos casos 1, 2, 4, 17, 18; `select-stack` + C14 em cópia) e, em `test_workflow_jobs.py`, que o job existe e chama esse comando. Que o GitHub o execute só se vê no CI.
 - C10 (`release.yml`) só roda no GitHub: o proof é de texto do workflow + `actionlint`.
 - `podman-compose` não é testado (decisão do usuário).
+- C6 prova a migration falhando com banco inválido (exit ≠ 0 e a API não chega a escutar), num `docker compose run`; não prova `/api/health` sem resposta 200 num container de longa duração.
 
-## Blocked (PARE já registrado, ver Handoff)
+## Decisões do mantenedor durante o build (`.tasks` atualizado em b6bb342)
 
-- **C3**: o texto exato `BACKEND_STACK must be python or node (got: go)` não é alcançável só com Compose: o Compose (v2.34) não tem igualdade/enum em interpolação; com `include` de caminho interpolado o `go` falha com `open .../go.yml: no such file or directory`, sem a mensagem. Necessita decisão do usuário.
-- **C12 e C13** com o `grep` literal sobre `.`: `backend-node/` (baseline do Alembic em `src/db/migrate.ts`, `schema-diff.sh`, fixtures), `contracts/` (sobe `uvicorn`/`alembic`), `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md` e `frontend/package-lock.json` (URL de funding `github.com/sponsors/fastify`) casam os padrões. Necessita decisão do usuário sobre o escopo do `grep`.
-
-## Landing
-
-Toca `docker-compose.yml`, `docker-compose.prod.yml` (+ `compose/` novo), `backend-node/` (Dockerfile, `src/scheduler.ts`), `charts/launchkit/`, `install.sh`, `.github/workflows/release.yml`, `.github/ci/` e `ci.yml` (aditivo), `scripts/` (`select-stack.mjs`, `stack/`), `deploy/public/README.md`, `.env.example`. Reusa: `x-podman`, healthchecks e `depends_on` atuais, `backend-node/src/migrate.ts` (`applyMigrations` com baseline do Alembic), `src/worker.ts`.
-
-| One-way door | Literal shape | Alternative rejected |
-| --- | --- | --- |
-| Mecanismo do Compose (`Unresolved` 2) | `docker-compose.yml` mantém `redis`, `db` e um `include:` com `path: compose/dev/${BACKEND_STACK:-python}.yml`; cada stack é um arquivo com seus 3 serviços (+ `frontend`, que precisa de `depends_on` para o nome da API daquela stack); idem `compose/prod/` | `profiles` com interpolação: `profiles` só ativa por `--profile`/`COMPOSE_PROFILES`, o Compose não compara `BACKEND_STACK` com um valor, e sem `.env` nenhum serviço de API subiria (quebra C2). Overlay via `COMPOSE_FILE`: exige uma segunda variável no `.env` e não remove os serviços Python |
-| Nomes e rede dos serviços Node | `backend-node` (alias de rede `backend`, escuta 8000), `worker-node`, `scheduler-node`; Python não muda | renomear os Python (Decided) |
-| Config comum entre as duas stacks | `compose/<dev\|prod>/common.yml` com serviços ocultos `backend-common` (env, volumes, `depends_on`) e `frontend-common`; cada stack faz `extends` | duplicar o bloco `x-backend-env` (30 variáveis) em dois arquivos por ambiente: deriva em silêncio |
-| Imagem Node | `backend-node/Dockerfile` multi-stage, alvo `dev` (tsx, código montado) e alvo final `runtime` (`node dist/*.js`, usuário `node`); API `sh -c "node dist/migrate.js && node dist/server.js"`, worker `node dist/worker.js`, scheduler `node dist/scheduler.js`; em dev `npm run migrate && npm run dev` | um Dockerfile só com `tsx` em produção: imagem maior, TS em runtime |
-| Scheduler Node | `src/scheduler.ts` (`npm run scheduler`): `buildContext`, `registerJobs(..., {schedule: true})` com a fila sem `start()` do `Worker`, fica vivo até SIGTERM; o `worker.ts` continua como está | mudar o `worker.ts` da task 01 (já verificado) para não agendar |
-| Escolha no Helm | `backend.stack: python\|node` (padrão `python`); templates de migration/worker/beat ramificam em `{{ if eq .Values.backend.stack "node" }}`; `backend.image.repository` padrão fica `ghcr.io/your-org/launchkit-backend` e `backend.nodeImage.repository` é `ghcr.io/your-org/launchkit-backend-node` | trocar `backend.image.repository` à mão: o critério pede só `backend.stack` |
-| `component` e nomes no Node | no Helm a stack Node usa componentes `worker` e `scheduler` (o Python mantém `celery-worker`/`celery-beat`), para que nenhum manifesto Node contenha `celery` | reaproveitar o rótulo `celery-*`: C8 falharia |
-| `install.sh --stack` | `--stack python\|node`; grava `BACKEND_STACK=<valor>` no `.env` novo; erro de valor: `Unsupported stack: <v> (use python or node)` e exit 2 | variável de ambiente em vez de flag: o critério fala em `--stack` |
-| `release.yml` | job novo `build-backend-node` (contexto `./backend-node`, imagem `launchkit-backend-node`), mesmos passos/tags dos outros | matriz no job existente: muda o nome do check dos jobs atuais |
-| Contrato do `select-stack` | `node scripts/select-stack.mjs --stack python\|node`; exit 0/1/2; texto: blocos `select-stack:python:begin/end` e `select-stack:node:begin/end` (marcadores em comentário do formato do arquivo) removidos para a stack não escolhida e só os marcadores retirados para a escolhida; arquivos exclusivos listados no próprio script | reescrever os arquivos por regex: frágil |
-| Nome dos jobs de CI | `stack-switch`, `select-stack`; saídas novas de `changes.py`: `run_stack_switch` e `run_select_stack`, anexadas depois das existentes | reaproveitar `run_helm`: o gatilho dos dois jobs é outro |
-
-- Nada mais nesta mudança é difícil de reverter. Portas descobertas durante o build entram aqui **antes** do código que as fecha.
-
-## Checks
-
-### S1 - Escolher a stack no Compose · ~12 files · ~30 KB · ~8k (+ libs/imagens ~10k) = ~18k
-
-**C1** - `BACKEND_STACK=node`: sobem exatamente `redis`, `db`, `frontend`, `backend-node`, `worker-node`, `scheduler-node` e 0 de `backend`, `celery-worker`, `celery-beat`
-Proof: `node --test --test-name-pattern='^C1 ' scripts/stack/stack.test.mjs` (sobe o projeto `t02-c1` com `up --build -d`, espera healthy e compara `docker compose ps --services --status running` com o conjunto exato)
-
-**C2** - `BACKEND_STACK=python` ou ausente: sobem exatamente `redis`, `db`, `backend`, `frontend`, `celery-worker`, `celery-beat` e 0 serviços Node
-Proof: `node --test --test-name-pattern='^C2 ' scripts/stack/stack.test.mjs` (dois casos: `python` e variável ausente)
-
-**C3** - `BACKEND_STACK=go`: `docker compose up` sai com código ≠ 0 antes de criar containers e imprime `BACKEND_STACK must be python or node (got: go)`
-Proof: `node --test --test-name-pattern='^C3 ' scripts/stack/stack.test.mjs` (`docker compose -p t02-c3 up` com `BACKEND_STACK=go`: exit ≠ 0, saída contém a mensagem, `docker compose -p t02-c3 ps -a -q` vazio)
-**BLOCKED** (ver acima): o proof será escrito e fica vermelho até o usuário decidir.
+- **C3** - `BACKEND_STACK=go`: `docker compose up` falha antes de criar containers (0 containers) com o erro nativo que aponta o `go.yml` inexistente; `install.sh`, `launchkit-compose` e o preflight do CI imprimem `BACKEND_STACK must be python or node (got: go)` e saem com 2
+Proof: `node --test --test-name-pattern='^C3 ' scripts/stack/stack.test.mjs` (4 casos: `docker compose -p t02-c3 up` com `go`: exit ≠ 0, saída cita `go.yml`, `ps -a -q` vazio; `install.sh` com `BACKEND_STACK=go` no ambiente; `launchkit-compose` com env-file `BACKEND_STACK=go`; `scripts/stack/preflight.sh`: cada um com exit 2 e a frase em stderr; valores `python`, `node` e ausente passam com exit 0)
+Também: `docker compose up` sem `.env` e sem `BACKEND_STACK` (C2 ausente) continua subindo a stack Python.
 
 **C4** - `BACKEND_STACK=node`: `GET http://localhost:<FRONTEND_PORT>/api/health` 200 `{"status":"healthy"}`, e o frontend alcança a API em `http://backend:8000`
 Proof: `node --test --test-name-pattern='^C4 ' scripts/stack/stack.test.mjs` (health pelo frontend; `docker compose exec frontend` resolve `backend` e `GET http://backend:8000/api/health` 200)
@@ -102,16 +70,14 @@ Proof: `node --test --test-name-pattern='^C11 ' scripts/stack/install.test.mjs` 
 
 ### S3 - Criar um projeto com uma stack só · ~25 files · ~60 KB · ~15k (+ libs ~5k) = ~20k
 
-**C12** - `select-stack.mjs --stack node`: `backend/` não existe e `grep -rIlE 'celery|alembic|uvicorn|pytest|ruff'` fora de `docs/` e `.tasks/` retorna 0 arquivos
-Proof: `node --test --test-name-pattern='^C12 ' scripts/stack/select-stack.test.mjs` (cópia do repositório com `git clone --local`, aplica e roda o grep com `--exclude-dir=.git --exclude-dir=docs --exclude-dir=.tasks --exclude-dir=.checks --exclude-dir=node_modules`)
-**BLOCKED** quanto ao `grep` literal sobre `.` (ver acima).
+**C12** - `select-stack.mjs --stack node`: `backend/` e `contracts/` não existem e `grep -rIlE 'celery|alembic|uvicorn|pytest|ruff'` sobre `docker-compose*.yml compose/ .github/ charts/ README.md CONTRIBUTING.md mise.toml renovate.json .pre-commit-config.yaml` (sem lockfiles) retorna 0 arquivos; o baseline do Alembic em `backend-node/` permanece e não conta
+Proof: `node --test --test-name-pattern='^C12 ' scripts/stack/select-stack.test.mjs` (cópia com `git clone --local`; além do grep, `backend-node/src/db/migrate.ts` ainda existe)
 
-**C13** - `select-stack.mjs --stack python`: `backend-node/` e `contracts/` não existem e `grep -rIlE 'fastify|drizzle|bullmq'` fora de `docs/` e `.tasks/` retorna 0 arquivos
+**C13** - `select-stack.mjs --stack python`: `backend-node/` e `contracts/` não existem e `grep -rIlE 'fastify|drizzle|bullmq'` sobre os mesmos caminhos (sem lockfiles) retorna 0 arquivos
 Proof: `node --test --test-name-pattern='^C13 ' scripts/stack/select-stack.test.mjs`
-**BLOCKED** (`frontend/package-lock.json`).
 
 **C14** - Após `select-stack` (qualquer stack): `docker compose config -q` e `helm lint charts/launchkit` saem com 0 e `actionlint` não aponta erro em `.github/workflows/`
-Proof: `node --test --test-name-pattern='^C14 ' scripts/stack/select-stack.test.mjs` (para `python` e `node`, em cópia)
+Proof: `node --test --test-name-pattern='^C14 ' scripts/stack/select-stack.test.mjs` (para `python` e `node`, em cópia; além disso, na árvore resultante `python3 .github/ci/test_changes.py` e `python3 .github/ci/test_workflow_jobs.py` passam)
 
 **C15** - Sem `--stack` ou valor inválido: exit 2 e uso com `python` e `node`; stack pedida já é a única: exit 0, `already selected: <stack>`, sem alterar arquivos
 Proof: `node --test --test-name-pattern='^C15 ' scripts/stack/select-stack.test.mjs` (4 casos: sem flag, `go`, já-selecionada em `python`, já-selecionada em `node`; `git status --porcelain` vazio nos dois últimos)
