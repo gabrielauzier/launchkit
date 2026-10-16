@@ -58,6 +58,9 @@ class StackJobsTest(unittest.TestCase):
         self.assertIn("node --test --test-name-pattern='^C(1|2|4|17|18) ' scripts/stack/stack.test.mjs", block)
         self.assertIn("steps.changes.outputs.run_stack_switch", block)
 
+    def test_stack_switch_runs_the_preflight(self):
+        self.assertIn("scripts/stack/preflight.sh", job_block("stack-switch"))
+
 
 class ChangesWiringTest(unittest.TestCase):
     def test_new_jobs_read_run_backend_node(self):

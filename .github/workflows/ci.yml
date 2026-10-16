@@ -525,6 +525,10 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Preflight BACKEND_STACK
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        run: scripts/stack/preflight.sh
+
       # C1, C2, C4, C17 and C18: each case brings a Compose project up on random host ports.
       - name: Run the stack cases with Docker Compose
         if: steps.changes.outputs.run_stack_switch != 'false'

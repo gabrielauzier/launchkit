@@ -1,8 +1,12 @@
 // Proofs C1-C6 (and, later, C7, C17, C18): the Compose stacks. Run one case with
 //   node --test --test-name-pattern='^C1 ' scripts/stack/stack.test.mjs
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { dockerLogs, project, waitForHealth } from './lib.mjs'
+import { ROOT, dockerLogs, project, waitForHealth } from './lib.mjs'
 
 const NODE_SERVICES = ['backend-node', 'db', 'frontend', 'redis', 'scheduler-node', 'worker-node']
 const PYTHON_SERVICES = ['backend', 'celery-beat', 'celery-worker', 'db', 'frontend', 'redis']
@@ -43,15 +47,67 @@ for (const [label, stack] of [['python', 'python'], ['absent', undefined]]) {
   })
 }
 
-test('C3 BACKEND_STACK=go fails before creating containers and says why', TIMEOUT, async () => {
+test('C3 BACKEND_STACK=go makes docker compose up fail before creating containers, pointing at go.yml', TIMEOUT, async () => {
   const p = await project('c3', { stack: 'go' })
   try {
     const result = p.run(['up', '--build', '-d'])
     assert.notEqual(result.status, 0)
-    assert.match(result.stdout + result.stderr, /BACKEND_STACK must be python or node \(got: go\)/)
-    assert.equal(p.must(['ps', '-a', '-q']).trim(), '')
+    assert.match(result.stdout + result.stderr, /go\.yml/)
+    const created = spawnSync('docker', ['ps', '-a', '-q', '--filter', 'label=com.docker.compose.project=t02-c3'], { encoding: 'utf8' })
+    assert.equal(created.stdout.trim(), '')
   } finally {
     p.down()
+  }
+})
+
+const GO_MESSAGE = /BACKEND_STACK must be python or node \(got: go\)/
+
+function scriptsRefuseGo() {
+  const dir = mkdtempSync(join(tmpdir(), 't02-c3-'))
+  const envFile = join(dir, 'env')
+  writeFileSync(envFile, 'SECRET_KEY=x\nBACKEND_STACK=go\n')
+  const env = { ...process.env }
+  delete env.BACKEND_STACK
+  return {
+    preflight: spawnSync('sh', [join(ROOT, 'scripts/stack/preflight.sh'), envFile], { env, encoding: 'utf8' }),
+    launchkitCompose: spawnSync(join(ROOT, 'deploy/public/launchkit-compose'), ['config', '-q'], {
+      env: { ...env, LAUNCHKIT_ENV_FILE: envFile },
+      encoding: 'utf8',
+    }),
+    install: spawnSync('bash', [join(ROOT, 'install.sh')], {
+      cwd: dir,
+      env: { ...env, BACKEND_STACK: 'go', PATH: `${fakeDockerBin(dir)}:${process.env.PATH}` },
+      encoding: 'utf8',
+    }),
+  }
+}
+
+function fakeDockerBin(dir) {
+  const bin = join(dir, 'bin')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\ncase "$1" in version) echo Docker;; info) exit 0;; compose) [ "$2" = version ] && echo v2.34;; esac\n')
+  writeFileSync(join(bin, 'curl'), '#!/bin/sh\nexit 0\n')
+  chmodSync(join(bin, 'docker'), 0o755)
+  chmodSync(join(bin, 'curl'), 0o755)
+  writeFileSync(join(dir, 'docker-compose.prod.yml'), 'services: {}\n')
+  return bin
+}
+
+for (const name of ['preflight', 'launchkitCompose', 'install']) {
+  test(`C3 ${name} prints the BACKEND_STACK message and exits 2 for go`, () => {
+    const result = scriptsRefuseGo()[name]
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.match(result.stderr, GO_MESSAGE)
+  })
+}
+
+test('C3 python, node and an unset BACKEND_STACK pass the preflight', () => {
+  for (const value of ['python', 'node', undefined]) {
+    const env = { ...process.env }
+    delete env.BACKEND_STACK
+    if (value) env.BACKEND_STACK = value
+    const result = spawnSync('sh', [join(ROOT, 'scripts/stack/preflight.sh'), '/nonexistent'], { env, encoding: 'utf8' })
+    assert.equal(result.status, 0, `${value}: ${result.stderr}`)
   }
 })
 

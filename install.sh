@@ -364,6 +364,23 @@ EOF
   success ".env file created with a random SECRET_KEY"
 }
 
+# ── Backend stack check ──────────────────────────────────────────────────────
+# Same message as scripts/stack/preflight.sh and deploy/public/launchkit-compose; the environment
+# wins over .env, like in Compose.
+check_backend_stack() {
+  local value="${BACKEND_STACK:-}"
+  if [ -z "$value" ] && [ -r .env ]; then
+    value="$(grep '^BACKEND_STACK=' .env | tail -n 1 | cut -d= -f2- | tr -d "\"' \r")"
+  fi
+  case "${value:-python}" in
+    python|node) ;;
+    *)
+      echo "BACKEND_STACK must be python or node (got: $value)" >&2
+      exit 2
+      ;;
+  esac
+}
+
 # ── Start Services ───────────────────────────────────────────────────────────
 start_services() {
   info "Pulling latest images..."
@@ -410,6 +427,7 @@ main() {
   wait_for_container_runtime
   setup_repo
   generate_env
+  check_backend_stack
   start_services
   wait_for_health
 
