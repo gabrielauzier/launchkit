@@ -56,11 +56,20 @@ config:
 
 # Backend configuration
 backend:
+  # python (FastAPI + Celery, the default) or node (Fastify + BullMQ). Both serve the same API
+  # over the same database; the stack decides the image (image or nodeImage) and the commands of
+  # the API, the migration job, the worker and the scheduler (celeryWorker and celeryBeat values
+  # configure the worker and the scheduler of either stack).
+  stack: python
   replicaCount: 1
   image:
     repository: ghcr.io/your-org/launchkit-backend
     tag: latest
     pullPolicy: IfNotPresent
+  # Used when stack is node.
+  nodeImage:
+    repository: ghcr.io/your-org/launchkit-backend-node
+    tag: latest
   service:
     type: ClusterIP
     port: 8000

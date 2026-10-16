@@ -103,3 +103,19 @@ test('C6 a failing migration exits non-zero and the API never starts', TIMEOUT, 
     p.down()
   }
 })
+
+test('C7 the production file runs the <IMAGE_PREFIX>/launchkit-backend-node image for node and no Python service', async () => {
+  const extraEnv = { IMAGE_PREFIX: 'ghcr.io/acme/launchkit', APP_VERSION: '1.2.3' }
+  const services = async (stack) => {
+    const p = await project('c7', { stack, file: 'docker-compose.prod.yml', extraEnv })
+    return JSON.parse(p.must(['config', '--format', 'json'])).services
+  }
+  const node = await services('node')
+  assert.deepEqual(Object.keys(node).sort(), NODE_SERVICES)
+  for (const name of ['backend-node', 'worker-node', 'scheduler-node']) {
+    assert.equal(node[name].image, 'ghcr.io/acme/launchkit-backend-node:1.2.3')
+  }
+  const python = await services('python')
+  assert.deepEqual(Object.keys(python).sort(), PYTHON_SERVICES)
+  assert.equal(python.backend.image, 'ghcr.io/acme/launchkit-backend:1.2.3')
+})

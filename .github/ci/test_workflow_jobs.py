@@ -65,5 +65,19 @@ class ChangesWiringTest(unittest.TestCase):
                 self.assertIn("steps.changes.outputs.run_backend ", job_block(name) + " ")
 
 
+RELEASE = WORKFLOW.with_name("release.yml")
+
+
+class ReleaseWorkflowTest(unittest.TestCase):
+    def test_publishes_three_images(self):
+        text = RELEASE.read_text()
+        images = re.findall(r"images: \$\{\{ env\.IMAGE_PREFIX \}\}/(launchkit-[a-z-]+)", text)
+        self.assertEqual(sorted(images), ["launchkit-backend", "launchkit-backend-node", "launchkit-frontend"])
+        node = re.search(r"^  build-backend-node:\n(.*?)(?=^  [a-z-]+:\n)", text, re.S | re.M).group(1)
+        self.assertIn("context: ./backend-node", node)
+        self.assertIn("file: ./backend-node/Dockerfile", node)
+        self.assertRegex(text, r"needs: \[build-backend, build-backend-node, build-frontend\]")
+
+
 if __name__ == "__main__":
     unittest.main()
