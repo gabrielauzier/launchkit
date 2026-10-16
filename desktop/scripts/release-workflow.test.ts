@@ -77,4 +77,16 @@ describe('desktop-release workflow', () => {
     expect(sign.env.APPLE_ID).toContain('secrets.')
     expect(text).toContain('LAUNCHKIT_DESKTOP_SIGNED')
   })
+
+  it('hands each signing secret to its own operating system only', () => {
+    const job = workflow.jobs['desktop-release']
+    const sign = job.steps.find((step: { env?: Record<string, string> }) => step.env?.CSC_LINK)
+    // electron-builder signs Windows with CSC_LINK when WIN_CSC_LINK is absent.
+    for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
+      expect(sign.env[name], name).toContain("runner.os == 'macOS'")
+    }
+    for (const name of ['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD']) {
+      expect(sign.env[name], name).toContain("runner.os == 'Windows'")
+    }
+  })
 })

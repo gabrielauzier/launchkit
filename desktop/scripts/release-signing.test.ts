@@ -14,7 +14,7 @@ const resolveStep = workflow.jobs['desktop-release'].steps.find((step: { name?: 
 type RunnerOS = 'macOS' | 'Windows' | 'Linux'
 
 /** Runs the workflow's own resolve step the way a runner would and returns what it exported. */
-function runResolveStep(runnerOs: RunnerOS, secrets: { mac?: boolean; win?: boolean }) {
+function runResolveStep(runnerOs: RunnerOS, secrets: { mac?: boolean; win?: boolean | 'link-only' }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'launchkit-release-'))
   const githubEnv = path.join(dir, 'github-env')
   writeFileSync(githubEnv, '')
@@ -24,7 +24,7 @@ function runResolveStep(runnerOs: RunnerOS, secrets: { mac?: boolean; win?: bool
     for (const [key, value] of Object.entries(resolveStep.env as Record<string, string>)) {
       if (key === 'RELEASE_REPO') env[key] = 'acme/launchkit-releases'
       else if (key.startsWith('HAS_MAC')) env[key] = String(Boolean(secrets.mac))
-      else if (key.startsWith('HAS_WIN')) env[key] = String(Boolean(secrets.win))
+      else if (key.startsWith('HAS_WIN')) env[key] = String(secrets.win === true || (secrets.win === 'link-only' && /LINK|CERT/.test(key)))
       else throw new Error(`unexpected env ${key}=${value} in the resolve step`)
     }
     const result = spawnSync('bash', ['-c', resolveStep.run], { env, encoding: 'utf8' })
@@ -72,6 +72,18 @@ describe('desktop-release signing defaults', () => {
     const signed = runResolveStep('Windows', { win: true })
     expect(signed.exported.LAUNCHKIT_DESKTOP_SIGNED).toBe('true')
     expect(updaterStarted(signed.exported)).toBe(true)
+  })
+
+  it('Windows with the certificate but no password is not signed', () => {
+    const { status, exported } = runResolveStep('Windows', { win: 'link-only' })
+    expect(status).toBe(0)
+    expect(exported.LAUNCHKIT_DESKTOP_SIGNED).toBe('false')
+    expect(updaterStarted(exported)).toBe(false)
+  })
+
+  it('macOS secrets alone never sign Windows', () => {
+    const { exported } = runResolveStep('Windows', { mac: true })
+    expect(exported.LAUNCHKIT_DESKTOP_SIGNED).toBe('false')
   })
 
   it('macOS with the signing secrets is signed and starts the autoUpdater', () => {
