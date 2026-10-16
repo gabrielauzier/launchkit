@@ -259,3 +259,225 @@ jobs:
         if: steps.backend-changes.outputs.run_backend != 'false'
         working-directory: .
         run: backend/.venv/bin/python backend/scripts/export_openapi.py --check
+
+  backend-node-tests:
+    name: Backend Node Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-node
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect Node backend changes
+        id: changes
+        working-directory: .
+        run: python3 .github/ci/changes.py
+
+      - name: Skip Node backend checks
+        if: steps.changes.outputs.run_backend_node == 'false'
+        run: echo "No Node-backend-relevant changes; skipping the Node backend checks."
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_backend_node != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend-node/package-lock.json
+
+      - name: Install dependencies
+        if: steps.changes.outputs.run_backend_node != 'false'
+        run: npm ci
+
+      - name: Lint
+        if: steps.changes.outputs.run_backend_node != 'false'
+        run: npm run lint
+
+      - name: Type check
+        if: steps.changes.outputs.run_backend_node != 'false'
+        run: npm run typecheck
+
+      # No REDIS_URL and no database service: the integration tests run on PGlite and the
+      # in-memory KeyValueStore.
+      - name: Run tests with coverage
+        if: steps.changes.outputs.run_backend_node != 'false'
+        run: npm test -- --coverage
+
+  contract:
+    name: Contract (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [python, node]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: launchkit_test
+          POSTGRES_PASSWORD: launchkit_test
+          POSTGRES_DB: launchkit_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U launchkit_test -d launchkit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect relevant changes
+        id: changes
+        run: python3 .github/ci/changes.py
+
+      - name: Skip the contract suite
+        if: steps.changes.outputs.run_backend == 'false' && steps.changes.outputs.run_backend_node == 'false'
+        run: echo "No backend-relevant changes; skipping the contract suite."
+
+      # Both stacks are installed in both legs: the cross-stack cases (C9, C11, C18, C21)
+      # run the stack under test against the other one on the same database.
+      - name: Set up Python
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Set up uv
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
+
+      - name: Install Python dependencies
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        working-directory: backend
+        run: uv sync --locked --all-extras
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend-node/package-lock.json
+            contracts/package-lock.json
+
+      - name: Install Node dependencies
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        run: |
+          npm ci --prefix backend-node
+          npm ci --prefix contracts
+
+      - name: Run the contract suite against ${{ matrix.stack }}
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        working-directory: contracts
+        env:
+          CONTRACT_STACK: ${{ matrix.stack }}
+          CONTRACT_DATABASE_URL: postgresql://launchkit_test:launchkit_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/launchkit_test
+          CONTRACT_REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
+          CONTRACT_PYTHON_BIN: ${{ github.workspace }}/backend/.venv/bin/python
+        run: |
+          status=0
+          npx vitest run --reporter=default --reporter=json --outputFile.json=.logs/result.json || status=$?
+          node scripts/summary.mjs .logs/result.json --no-skip
+          exit $status
+
+  schema-diff:
+    name: Schema Diff
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: launchkit_test
+          POSTGRES_PASSWORD: launchkit_test
+          POSTGRES_DB: launchkit_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U launchkit_test -d launchkit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect relevant changes
+        id: changes
+        run: python3 .github/ci/changes.py
+
+      - name: Skip the schema diff
+        if: steps.changes.outputs.run_backend == 'false' && steps.changes.outputs.run_backend_node == 'false'
+        run: echo "No backend-relevant changes; skipping the schema diff."
+
+      - name: Set up Python
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Set up uv
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
+
+      - name: Install Python dependencies
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        working-directory: backend
+        run: uv sync --locked --all-extras
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend-node/package-lock.json
+
+      - name: Install Node dependencies
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        run: npm ci --prefix backend-node
+
+      # Alembic and Drizzle build two empty databases; pg_dump --schema-only of both must match.
+      - name: Compare the Alembic and Drizzle schemas
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_backend_node != 'false'
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: ${{ job.services.postgres.ports['5432'] }}
+          PGUSER: launchkit_test
+          PGPASSWORD: launchkit_test
+          SCHEMA_DIFF_URL_BASE: postgresql://launchkit_test:launchkit_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}
+          PYTHON_BIN: ${{ github.workspace }}/backend/.venv/bin/python
+        run: backend-node/scripts/schema-diff.sh --self-test
