@@ -4,7 +4,7 @@ profile: light · handoff: on · budget 150k por batch
 
 Sources:
 
-- `.tasks/01-backend-node-paridade-de-contrato.md` - **a fonte**: 42 critérios em 7 slices, `Decided`, `Unresolved`. Os números `C1..C42` abaixo são os números dos critérios.
+- `.tasks/01-backend-node-paridade-de-contrato.md` - **a fonte**: 43 critérios em 7 slices, `Decided`, `Unresolved`. Os números `C1..C43` abaixo são os números dos critérios.
 - `docs/prds/prd-feature-1-node-fastify-backend.md` - histórias 1 a 5 e 7, FR-001 a FR-008 e FR-010
 - `docs/plans/feature-1-node-fastify-backend.md` - fases, decisões D3 a D7
 - `backend/app/` e `backend/tests/` - o contrato de referência; `backend/uv.lock` fixa fastapi 0.142.2, fastapi-users 15.0.5, pwdlib 0.3.0
@@ -17,7 +17,7 @@ Sources:
 - Rodar as duas stacks sobre o mesmo banco **em produção** - risco de corrupção; a suíte de contrato roda as duas ao mesmo tempo sobre o mesmo Postgres só nos casos cruzados (C9, C11, C18, C21), sem DDL concorrente.
 - Enviar e-mail de reset de senha - o Python também não envia; o Node espelha.
 - Tipos de `frontend/src/types` a partir do OpenAPI, provider S3, renomear `backend/`, escolha da stack em Compose/Helm/`install.sh`/release (task 2).
-- Cobertura de rotas sem critério dono (ver `## Handoff`, "Lacunas da task"): `GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET|PATCH|DELETE /api/users/{id}` (só o 422 do `PATCH` entra, via C16), `GET/PATCH/DELETE` de `files` além de upload/download. A task é a fonte; não as acrescento aos 42.
+- Cobertura de rotas sem critério dono: coberta por C43 (um caso por operação). `PATCH /api/users/{id}` entra por C16 (422) e o resto de `files` por C43.
 
 ## Proof environment
 
@@ -99,7 +99,7 @@ Proof: `backend-node/test/config.test.ts` `C8 loadConfig throws the same message
 Proof: `contracts/tests/cross-stack-hash.test.ts` `C9 argon2 user created on python logs in on node`, `C9 argon2 user created on node logs in on python`, `C9 bcrypt user logs in on python`, `C9 bcrypt user logs in on node` (bcrypt: linha semeada no Postgres, entra nas duas)
 
 **C10** - Usuário com hash bcrypt: após login bem-sucedido no Node, o hash armazenado começa com `$argon2`
-Proof: `contracts/tests/login.test.ts` `C10 a bcrypt hash is replaced by an argon2 hash after a successful login`, rodado com `CONTRACT_STACK=node` **e** com `CONTRACT_STACK=python` (Unresolved 1: se o Python não troca o hash, PARE e relate, não mude o critério)
+Proof: `contracts/tests/login.test.ts` `C10 a bcrypt hash is replaced by an argon2 hash after a successful login`, rodado com `CONTRACT_STACK=node` **e** com `CONTRACT_STACK=python` (confirmado: o Python troca bcrypt por argon2 no login)
 
 **C11** - Token emitido por uma stack com o mesmo `SECRET_KEY`: `GET /api/users/me` 200 na outra, nos dois sentidos; token expirado: 401
 Proof: `contracts/tests/cross-stack-token.test.ts` `C11 token from python is accepted by node`, `C11 token from node is accepted by python`, `C11 token issued with ACCESS_TOKEN_EXPIRE_MINUTES=-1 is rejected with 401`, `C11 token claims are sub=<uuid>, aud=["fastapi-users:auth"], alg HS256`
@@ -156,25 +156,25 @@ Proof: `CONTRACT_STACK=python` e `CONTRACT_STACK=node`, arquivos `oidc-*.test.ts
 **C26** - `X-Workspace-Id` não UUID: 400 `{"detail":"Invalid X-Workspace-Id"}`; workspace inexistente, arquivado ou do qual o usuário não é membro nem gerente: 404 `{"detail":"Workspace not found"}`; cabeçalho ausente: vale o workspace padrão, e sem nenhum, 404 `{"detail":"No workspace available"}`
 Proof: `contracts/tests/workspace-context.test.ts` seis casos `C26 ...` (ver Coverage), todos via `GET /api/workspaces/current`
 
-**C27** - Viewer escreve: 403 `{"detail":"Read-only role"}`; editor chama rota exclusiva de owner: 403 `{"detail":"Owner role required"}`; gerente (`managed_by_user_id`) tem direitos de owner sem linha em `workspace_members`
-Proof: `contracts/tests/workspace-roles.test.ts` `C27 viewer write is 403 Read-only role`, `C27 editor on an owner-only route is 403 Owner role required`, `C27 manager without a membership row acts as owner`
-**CONFLITO com o Python (achado no EXTRACT):** nenhuma rota usa `ctx.require_owner()`; as rotas exclusivas de owner (`PATCH /api/workspaces/{id}`, `POST|PATCH members`, `POST archive`) respondem 403 `{"detail":"Insufficient role"}` (`workspace_service.require_membership`). O segundo caso não passa contra o Python (C3). Bloqueado até o usuário decidir; não será ajustado em silêncio.
+**C27** - Viewer escreve: 403 `{"detail":"Read-only role"}`; editor chama rota exclusiva de owner: 403 `{"detail":"Insufficient role"}`; gerente (`managed_by_user_id`) tem direitos de owner sem linha em `workspace_members`
+Proof: `contracts/tests/workspace-roles.test.ts` `C27 viewer write is 403 Read-only role`, `C27 editor on an owner-only route is 403 Insufficient role`, `C27 manager without a membership row acts as owner`
+Renegociado com o usuário (batch 2): o segundo caso era "Owner role required", que nenhuma rota do Python usa (`ctx.require_owner()` não é chamado); as rotas exclusivas de owner (`PATCH /api/workspaces/{id}`, `POST|PATCH members`, `POST archive`) respondem 403 `{"detail":"Insufficient role"}` (`workspace_service.require_membership`). O Node espelha o Python.
 
 **C28** - Cada uma das 12 operações de `/api/workspaces` e `/api/users` (`lookup`, `directory`) tem ao menos 1 caso com status e corpo, incluindo `archive` e a remoção de membro
 Proof: `contracts/tests/workspaces.test.ts` `C28 <METHOD> <path>` por operação (12 linhas no Coverage)
 
-**C29** - Dois `POST /api/workspaces/{id}/members` simultâneos para o mesmo usuário: `workspace_members` fica com 1 linha para o par (`uq_workspace_member`) e a segunda resposta é igual à da duplicata sequencial do Python
-Proof: `contracts/tests/workspaces.test.ts` `C29 two concurrent invites leave one membership row`, `C29 the loser answers like the sequential duplicate (409 User is already a member)`
-Risco: o Python não captura `IntegrityError` nessa corrida; se ele devolver 500 na concorrência, a segunda resposta "igual à da duplicata sequencial" (409) não vale para o Python. Resultado do Python decide: PARE e relate.
+**C29** - Dois `POST /api/workspaces/{id}/members` simultâneos para o mesmo usuário: `workspace_members` fica com 1 linha para o par (`uq_workspace_member`), um pedido responde 201 e o outro 409, nas duas stacks (o Python passa a capturar `IntegrityError` nessa corrida e a responder 409, no lugar do 500 de hoje)
+Proof: `contracts/tests/workspaces.test.ts` `C29 two concurrent invites leave one membership row`, `C29 one concurrent invite is 201 and the other is 409`, `C29 a sequential duplicate invite is 409 User is already a member`
+Renegociado com o usuário (batch 2): o Python passa a capturar `IntegrityError` em `add_member` e responde 409; correção mínima em `backend/` com teste Python que falha antes e passa depois (`backend/tests/test_workspace_service.py`). Se a duplicata sequencial não fosse 409 no Python, o batch para e relata.
 
 **C30** - A suíte contém os casos de `test_write_permission_gate.py` para viewer, editor e owner, todos passando nas duas stacks
 Proof: `contracts/tests/write-gate.test.ts` `C30 a viewer cannot upload`, `C30 a viewer cannot change a file (PATCH, DELETE)`, `C30 a viewer can still read`, `C30 the gate is about role not identity`, `C30 an editor can upload`
 
 ### S5 - Admin e arquivos · 12 files · 67 KB · ~17k (+ libs ~4k + Node landed ~20k) = ~41k
 
-**C31** - Usuário sem `is_superuser` em qualquer rota de `/api/admin/*`: 403; sem token: 401
-Proof: `contracts/tests/admin-access.test.ts` `C31 non-superuser is 403 and anonymous is 401 on every /api/admin operation`
-**CONFLITO com o Python (achado no EXTRACT):** 4 das 13 operações não exigem superuser: `GET /api/admin/registration-status` e `GET /api/admin/default-colors` são públicas (200 sem token), `GET /api/admin/number-format` e `GET /api/admin/date-format` aceitam qualquer usuário ativo (200). O claim "qualquer rota" é falso contra o Python (C3). O proof cobrirá as 9 operações com `current_superuser` até o usuário decidir; as 4 divergentes ficam registradas e não serão ajustadas em silêncio.
+**C31** - Usuário sem `is_superuser` chamando uma das 9 operações de `/api/admin/*` que exigem superusuário: 403, e sem token: 401; `GET /api/admin/registration-status` e `GET /api/admin/default-colors` respondem 200 sem token; `GET /api/admin/number-format` e `GET /api/admin/date-format` respondem 200 a qualquer usuário ativo e 401 sem token
+Proof: `contracts/tests/admin-access.test.ts` `C31 non-superuser is 403 and anonymous is 401 on the 9 superuser operations`, `C31 registration-status and default-colors are public`, `C31 number-format and date-format need an active user (401 without a token, 200 with one)`
+Renegociado com o usuário (batch 2): o critério foi reescrito para o comportamento real do Python. As 9 operações com `current_superuser` são as de `users` (5), `settings/{key}` (3) e `timezone`; as 4 restantes são as públicas e as de usuário ativo acima.
 
 **C32** - Cada uma das 13 operações de `/api/admin/*` tem ao menos 1 caso com status e corpo
 Proof: `contracts/tests/admin.test.ts` `C32 <METHOD> <path>` por operação (13 linhas no Coverage)
@@ -219,12 +219,15 @@ CI-only: o consumo de `run_backend_node` pelos jobs novos só roda no GitHub; lo
 **C42** - Redis fora: `POST /api/auth/login` e as demais rotas com rate limit respondem 500, como o Python
 Proof: `contracts/tests/redis-down.test.ts` `C42 <METHOD> <path> is 500 when redis is down` por operação (10 linhas no Coverage), nas duas stacks (instância `spawnStack` com `REDIS_URL=redis://127.0.0.1:1`)
 
+**C43** - Cada operação sem critério próprio (`GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso de contrato com status e corpo, e passa nas duas stacks
+Proof: `contracts/tests/unowned-operations.test.ts` `C43 <METHOD> <path>` por operação (9 linhas no Coverage)
+
 ## Swept
 
 - validation: C16 (422), C33 (arquivo), C19/C20 (códigos), C26 (`X-Workspace-Id`)
 - failure modes: C8 (processo não sobe), C16, C42
 - idempotency and retry: C5 (segundo `create-admin` 403), C18 (`temp_token` de uso único)
-- authorization: C26, C27, C31 (com o conflito registrado), C7 (política de login local)
+- authorization: C26, C27, C31, C7 (política de login local)
 - concurrency and ordering: C29 (convites simultâneos), C12 (janela deslizante; ordem das dependências login/rate-limit igual ao Python)
 - data lifecycle: C28 (arquivar, remover membro), C34 (download após exclusão não existe: `delete` é de S5, caso `C28`/`files.test.ts` `C34`), C18/C23 (TTL de 300 s e 600 s)
 - external-dependency failure: C42 (Redis), C23/C24 (provedor OIDC falso derrubado: mesmo status do Python, caso em `oidc-failures.test.ts`)
@@ -249,9 +252,10 @@ Proof: `contracts/tests/redis-down.test.ts` `C42 <METHOD> <path> is 500 when red
 | casos de teste do Python a portar (59) | `test_oidc_auth.py` 18 · `test_passkeys.py` 27 · `test_two_factor.py` 14, todos em `parity-map.json`, C25 | - |
 | operações de workspaces e usuários (12) | `GET workspaces` · `POST workspaces` · `GET workspaces/current` · `PATCH workspaces/{id}` · `GET .../members` · `POST .../members` · `PATCH .../members/{uid}` · `DELETE .../members/{uid}` · `GET .../stats` · `POST .../archive` · `GET users/lookup` · `GET users/directory`, todas em C28 | - |
 | operações de `/api/admin/*` (13) | `GET users` · `POST users` · `GET users/{id}` · `PATCH users/{id}` · `DELETE users/{id}` · `GET settings/{key}` · `PATCH settings/{key}` · `DELETE settings/{key}` · `GET timezone` · `GET registration-status` · `GET default-colors` · `GET number-format` · `GET date-format`, todas em C32 | - |
+| operações sem critério próprio (9) | `GET info` · `GET timezones` · `GET settings/files` · `GET auth/oidc/config` · `GET users/{id}` · `DELETE users/{id}` · `GET files` · `PATCH files/{id}` · `DELETE files/{id}`, todas em C43 | - |
 | montagens de configuração na partida (3) | `server.ts` C8 · `worker.ts` C35 · `cli.ts` C36, as três chamam o mesmo `loadConfig()` e o mesmo `buildContext()`; a rota HTTP usa `buildApp(ctx)`, que `server.ts` e o harness de `npm test` compartilham | - |
 
-- Checks cujo claim cita status, rota ou corpo de resposta: C5, C6, C7, C12, C14, C15, C16, C17, C18, C19, C20, C23, C24, C26, C27, C28, C29, C31, C32, C33, C34, C42 - cada um tem proof de contrato HTTP que cruza a fronteira (processo real, `fetch`)
+- Checks cujo claim cita status, rota ou corpo de resposta: C5, C6, C7, C12, C14, C15, C16, C17, C18, C19, C20, C23, C24, C26, C27, C28, C29, C31, C32, C33, C34, C42, C43 - cada um tem proof de contrato HTTP que cruza a fronteira (processo real, `fetch`)
 - Nenhum outro check afirma mais que o caso único que o proof exercita
 
 ## Handoff
@@ -270,9 +274,9 @@ Método de estimativa: `wc -c / 4` sobre os arquivos que a slice lê (ver cada t
 
 - **Batch 1 = S1 + S2** (61k). As fundações de S7 (esquema Drizzle, migration `0000`, baseline, `KeyValueStore`) são pré-requisito de S2 (o Node não responde sem banco) e ~15k delas entram aqui: 76k. S3 entraria a 144k, sem folga para o que a aritmética não alcança, e é onde a superfície muda (passkeys, OIDC e 2FA leem outros arquivos do Python e outras bibliotecas): corte em S2.
 - **Batch 2 = S3 + S4** (68k + 38k = 106k). S5 entraria a 147k, sem folga; S4 → S5 também troca de superfície (workspaces → admin/arquivos).
-- **Batch 3 = S5 + S6 + S7** (41k + 16k + ~10k que restam de S7 = ~67k). S7 fecha por último porque C40 e C42 são propriedades da suíte inteira e das 10 rotas com limite, e C39 precisa do `InProcessQueue` de S6. Os proofs de S7 que não dependem de rota (C37, C38, C41) rodam já no batch 1, em verde antecipado, sem fechar a slice.
+- **Batch 3 = S5 + S6 + S7 + C43** (41k + 16k + ~10k que restam de S7 + ~4k de C43 = ~71k; C43 é um arquivo de teste novo sobre rotas que S4 e S5 já deixaram, sem leitura nova do Python além de `info`/`timezones`/`settings`). S7 fecha por último porque C40 e C42 são propriedades da suíte inteira e das 10 rotas com limite, e C39 precisa do `InProcessQueue` de S6. Os proofs de S7 que não dependem de rota (C37, C38, C41) rodam já no batch 1, em verde antecipado, sem fechar a slice.
 - **Checks que atravessam batches (gate, rodados em todo batch com a suíte do momento):** C3, C4, C40. **Fecham depois da slice dona:** C16 (batches 2-3), C42 (batch 3).
-- **Lacunas da task (a decidir pelo usuário, não alterei critério algum):** C27 (segundo caso) e C31 (4 das 13 operações) contradizem o Python; C29 depende do comportamento do Python na corrida; 8 rotas sem critério dono listadas em `Out of scope`.
+- **Lacunas da task:** resolvidas pelo usuário depois do batch 1 (C27, C29, C31 reescritos; C43 cobre as rotas sem critério dono). Nenhuma aberta.
 
 ### Batch 1 fechado (S1 + S2)
 
