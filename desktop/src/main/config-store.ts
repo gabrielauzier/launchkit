@@ -2,6 +2,18 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 type Config = Record<string, unknown>
+export interface Bounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export function isBounds(value: unknown): value is Bounds {
+  if (value === null || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (['x', 'y', 'width', 'height'] as const).every((key) => typeof candidate[key] === 'number' && Number.isFinite(candidate[key]))
+}
 
 function read(file: string): Config {
   try {
@@ -12,7 +24,7 @@ function read(file: string): Config {
   }
 }
 
-/** `userData/config.json`: the server URL (and, later, the window bounds). */
+/** `userData/config.json`: the server URL and the window bounds. */
 export function createConfigStore(file: string) {
   function update(patch: Config) {
     const next = { ...read(file), ...patch }
@@ -29,6 +41,13 @@ export function createConfigStore(file: string) {
     },
     setServerUrl(url: string) {
       update({ serverUrl: url })
+    },
+    getBounds(): Bounds | null {
+      const value = read(file).bounds
+      return isBounds(value) ? value : null
+    },
+    setBounds(bounds: Bounds) {
+      update({ bounds })
     },
   }
 }
