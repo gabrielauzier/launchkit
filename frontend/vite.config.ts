@@ -1,13 +1,30 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { resolveAppVersion } from './build/version.ts'
 
 function getFrontendHost(frontendUrl?: string) {
   if (!frontendUrl) return []
   const withoutProto = frontendUrl.replace(/^https?:\/\//, '')
   return [withoutProto.split(/[:/]/)[0]]
+}
+
+/**
+ * The desktop renderer runs under a `default-src 'self'` CSP and must render
+ * offline, so it drops the Google Fonts requests (the CSS font stack falls
+ * back to Inter and the system font). The web build keeps them.
+ */
+function stripGoogleFonts(): Plugin {
+  return {
+    name: 'launchkit-desktop-strip-google-fonts',
+    enforce: 'pre',
+    transformIndexHtml: (html) => html.replace(/^[ \t]*<link[^>]*fonts\.(googleapis|gstatic)\.com[^>]*>\r?\n/gm, ''),
+    transform: (code, id) =>
+      id.split('?')[0].endsWith('.css') && code.includes('fonts.googleapis.com')
+        ? { code: code.replace(/^@import url\(['"]https:\/\/fonts\.googleapis\.com[^)]*\);?\r?\n/gm, ''), map: null }
+        : null,
+  }
 }
 
 export default defineConfig(async ({ mode }) => {
@@ -37,7 +54,7 @@ export default defineConfig(async ({ mode }) => {
       // under nginx's `try_files $uri $uri/ /index.html`.
       assetsDir: 'static',
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [...(mode === 'desktop' ? [stripGoogleFonts()] : []), react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),
