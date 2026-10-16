@@ -119,3 +119,100 @@ test('C7 the production file runs the <IMAGE_PREFIX>/launchkit-backend-node imag
   assert.deepEqual(Object.keys(python).sort(), PYTHON_SERVICES)
   assert.equal(python.backend.image, 'ghcr.io/acme/launchkit-backend:1.2.3')
 })
+
+// ── C17 / C18: switching the stack over the same volumes ────────────────────────────────────────
+const EMAIL = 'switch@example.com'
+const PASSWORD = 'correct-horse-battery'
+
+async function call(p, path, { token, workspace, ...init } = {}) {
+  const headers = { ...(init.headers ?? {}) }
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (workspace) headers['X-Workspace-Id'] = workspace
+  const response = await fetch(`${p.frontend}${path}`, { ...init, headers })
+  const text = await response.text()
+  return { status: response.status, body: text ? JSON.parse(text) : null }
+}
+
+async function login(p) {
+  const response = await call(p, '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: EMAIL, password: PASSWORD }),
+  })
+  assert.equal(response.status, 200, JSON.stringify(response.body))
+  return response.body.access_token
+}
+
+async function snapshot(p, token) {
+  const workspaces = await call(p, '/api/workspaces', { token })
+  const files = await call(p, '/api/files', { token })
+  assert.equal(workspaces.status, 200)
+  assert.equal(files.status, 200)
+  return { workspaces: workspaces.body.map((w) => w.id).sort(), files: files.body.map((f) => f.id).sort() }
+}
+
+async function addFile(p, token, name) {
+  const form = new FormData()
+  form.append('file', new Blob(['%PDF-1.4 switch proof']), name)
+  const response = await call(p, '/api/files', { method: 'POST', token, body: form })
+  assert.equal(response.status, 201, JSON.stringify(response.body))
+}
+
+async function switchTo(p, stack) {
+  p.down(false)
+  p.env.BACKEND_STACK = stack
+  p.up()
+  await waitForHealth(p.frontend)
+}
+
+/** A Python installation with 1 user, 1 workspace and 1 file. */
+async function pythonInstallation(name) {
+  const p = await project(name, { stack: 'python' })
+  p.up()
+  await waitForHealth(p.frontend)
+  const created = await call(p, '/api/setup/create-admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+  })
+  assert.equal(created.status, 200, JSON.stringify(created.body))
+  await addFile(p, created.body.access_token, 'first.pdf')
+  const python = await snapshot(p, created.body.access_token)
+  assert.equal(python.workspaces.length, 1)
+  assert.equal(python.files.length, 1)
+  return { p, python }
+}
+
+test('C17 after switching a Python installation to node the user logs in and sees the same workspaces and files', TIMEOUT, async () => {
+  const { p, python } = await pythonInstallation('c17')
+  try {
+    await switchTo(p, 'node')
+    assert.deepEqual(await snapshot(p, await login(p)), python)
+  } finally {
+    p.down()
+  }
+})
+
+test('C18 after use on node, going back to python keeps the items created on node', TIMEOUT, async () => {
+  const { p, python } = await pythonInstallation('c18')
+  try {
+    await switchTo(p, 'node')
+    const token = await login(p)
+    await addFile(p, token, 'second.pdf')
+    const created = await call(p, '/api/workspaces', {
+      method: 'POST',
+      token,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Created on node' }),
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.body))
+    const onNode = await snapshot(p, token)
+    assert.equal(onNode.files.length, python.files.length + 1)
+    assert.equal(onNode.workspaces.length, python.workspaces.length + 1)
+
+    await switchTo(p, 'python')
+    assert.deepEqual(await snapshot(p, await login(p)), onNode)
+  } finally {
+    p.down()
+  }
+})
