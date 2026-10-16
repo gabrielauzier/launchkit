@@ -244,7 +244,7 @@ Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "forwards updat
 Proof: pendente - exige app assinado e repositório de releases de teste; ver `Local proof limits`
 
 **C27** - Sem rede, o app abre normalmente e nenhum diálogo de erro de atualização aparece
-Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "swallows update check errors without dialogs"`
+Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "swallows update check errors without dialogs"` e `-t "attaches a handler to the rejected check"` (o segundo mata o mutante sem `.catch`; o primeiro sozinho não)
 
 **C28** - Em build sem assinatura, o `autoUpdater` não é iniciado
 Proof: `cd desktop && npx vitest run src/main/updater.test.ts -t "does not start the autoUpdater for unsigned builds"`

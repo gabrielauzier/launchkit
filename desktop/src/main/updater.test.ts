@@ -43,6 +43,8 @@ describe('updater', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  // Coupled to the `.then`/`.catch` form on purpose: an `await` inside try/catch is also correct
+  // but would not be seen by this spy, so refactoring `check` that way means rewriting this test.
   it('attaches a handler to the rejected check so no unhandledRejection reaches the main process', async () => {
     const { autoUpdater, updater } = setup()
     const rejection = Promise.reject(new Error('net::ERR_INTERNET_DISCONNECTED'))
