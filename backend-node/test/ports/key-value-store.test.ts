@@ -88,6 +88,7 @@ describe.runIf(process.env.REDIS_URL)('RedisStore', () => {
     'RedisStore',
     async () => {
       const store = new RedisStore(process.env.REDIS_URL as string)
+      await store.ready()
       return { store, cleanup: () => store.close() }
     },
     true,

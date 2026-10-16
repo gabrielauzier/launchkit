@@ -70,6 +70,32 @@ const OPERATIONS: Operation[] = [
     slice: 'S4',
     call: (a, t) => a.patch(`/api/workspaces/${t.workspaceId}/members/${t.userId}`, { token: t.user, json: {} }),
   },
+  {
+    name: 'POST /api/admin/users',
+    slice: 'S5',
+    call: (a, t) => a.post('/api/admin/users', { token: t.admin, json: { email: 'bad' } }),
+  },
+  {
+    name: 'PATCH /api/admin/users/{id}',
+    slice: 'S5',
+    call: (a, t) => a.patch(`/api/admin/users/${t.userId}`, { token: t.admin, json: { is_active: 'nope' } }),
+  },
+  {
+    name: 'PATCH /api/admin/settings/{key}',
+    slice: 'S5',
+    call: (a, t) => a.patch('/api/admin/settings/number_format', { token: t.admin, json: {} }),
+  },
+  { name: 'POST /api/files', slice: 'S5', call: (a, t) => a.post('/api/files', { token: t.user, body: new FormData() }) },
+  {
+    name: 'PATCH /api/files/{file_id}',
+    slice: 'S5',
+    call: (a, t) =>
+      a.patch('/api/files/00000000-0000-4000-8000-0000000000dd', {
+        token: t.user,
+        headers: { 'x-workspace-id': t.workspaceId },
+        json: { filename: '' },
+      }),
+  },
 ]
 
 describe('request validation', () => {

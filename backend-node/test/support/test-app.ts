@@ -10,6 +10,7 @@ import type { AppContext } from '../../src/context.ts'
 import type { Database } from '../../src/db/client.ts'
 import { applyMigrations } from '../../src/db/migrate.ts'
 import { LocalStorageProvider } from '../../src/ports/local-storage.ts'
+import { InProcessQueue } from '../../src/ports/in-process-queue.ts'
 import { MemoryStore } from '../../src/ports/memory-store.ts'
 
 export interface TestApp {
@@ -32,13 +33,14 @@ export async function createTestApp(env: Record<string, string> = {}): Promise<T
     { envFiles: [], secretsDirs: [] },
   )
   const storage = new LocalStorageProvider(mkdtempSync(join(tmpdir(), 'launchkit-node-files-')))
-  const ctx: AppContext = { config, db, keyValueStore: new MemoryStore(), storage }
+  const ctx: AppContext = { config, db, keyValueStore: new MemoryStore(), jobQueue: new InProcessQueue(), storage }
   const app = await buildApp(ctx)
   return {
     app,
     ctx,
     close: async () => {
       await app.close()
+      await ctx.jobQueue.close()
       await ctx.keyValueStore.close()
       await client.close()
     },
