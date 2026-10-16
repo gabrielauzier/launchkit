@@ -2293,6 +2293,22 @@
               ],
               "title": "Redirect Target"
             }
+          },
+          {
+            "in": "query",
+            "name": "desktop_nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desktop Nonce"
+            }
           }
         ],
         "responses": {

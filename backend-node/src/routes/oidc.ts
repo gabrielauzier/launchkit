@@ -17,6 +17,7 @@ import { workspaceMembers } from '../db/schema.ts'
 const OIDC_STATE_TTL_SECONDS = 600
 const EXISTING_USER_LINK_MODES = ['disabled', 'verified_email', 'email']
 const REQUEST_TIMEOUT_MS = 10_000
+const DESKTOP_NONCE_MIN_LENGTH = 32
 
 type Json = Record<string, unknown>
 
@@ -257,16 +258,20 @@ export function oidcRoutes(ctx: AppContext) {
       }),
     )
 
-    const loginQuery = z.object({ redirect_target: z.string().optional() })
+    const loginQuery = z.object({ redirect_target: z.string().optional(), desktop_nonce: z.string().optional() })
     typed.get('/api/auth/oidc/login', { schema: { querystring: loginQuery } }, async (request, reply) => {
       if (!config.oidcClientId) throw new HttpError(500, 'OIDC_CLIENT_ID is required')
       const discovery = await discover()
       const authorizationEndpoint = discovery.authorization_endpoint
       if (!authorizationEndpoint) throw new HttpError(500, 'OIDC discovery is missing authorization_endpoint')
       // The desktop app asks for its own deep link; only exact allowlisted URLs are honoured.
-      const { redirect_target: redirectTarget } = request.query
-      if (redirectTarget !== undefined && !config.oidcDesktopRedirects.includes(redirectTarget)) {
-        throw new HttpError(400, 'Invalid redirect_target')
+      const { redirect_target: redirectTarget, desktop_nonce: desktopNonce } = request.query
+      if (redirectTarget !== undefined) {
+        if (!config.oidcDesktopRedirects.includes(redirectTarget)) throw new HttpError(400, 'Invalid redirect_target')
+        // The app proves the deep link answers a sign-in it started with a nonce of its own.
+        if (desktopNonce === undefined || desktopNonce.length < DESKTOP_NONCE_MIN_LENGTH) {
+          throw new HttpError(400, 'Invalid desktop_nonce')
+        }
       }
 
       const state = tokenUrlsafe(32)
@@ -274,7 +279,10 @@ export function oidcRoutes(ctx: AppContext) {
       const codeVerifier = tokenUrlsafe(64)
       const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
       const statePayload: Record<string, string> = { nonce, code_verifier: codeVerifier }
-      if (redirectTarget !== undefined) statePayload.redirect_target = redirectTarget
+      if (redirectTarget !== undefined) {
+        statePayload.redirect_target = redirectTarget
+        statePayload.desktop_nonce = desktopNonce as string
+      }
       await ctx.keyValueStore.set(`oidc_state:${state}`, JSON.stringify(statePayload), {
         ttlSeconds: OIDC_STATE_TTL_SECONDS,
       })
@@ -299,7 +307,7 @@ export function oidcRoutes(ctx: AppContext) {
         const { code, state } = request.query
         const raw = await ctx.keyValueStore.getdel(`oidc_state:${state}`)
         if (raw === null) throw new HttpError(400, 'Invalid or expired OIDC state')
-        const stateData = JSON.parse(raw) as { nonce: string; code_verifier?: string; redirect_target?: string }
+        const stateData = JSON.parse(raw) as { nonce: string; code_verifier?: string; redirect_target?: string; desktop_nonce?: string }
 
         const discovery = await discover()
         const tokens = await exchangeCode(discovery, code, stateData.code_verifier ?? '')
@@ -313,7 +321,11 @@ export function oidcRoutes(ctx: AppContext) {
 
         const token = await writeAccessToken(config, user.id)
         if (stateData.redirect_target) {
-          return reply.redirect(`${stateData.redirect_target}#access_token=${token}&token_type=bearer`, 307)
+          const nonce = encodeURIComponent(stateData.desktop_nonce ?? '')
+          return reply.redirect(
+            `${stateData.redirect_target}#access_token=${token}&token_type=bearer&desktop_nonce=${nonce}`,
+            307,
+          )
         }
         const frontend = config.frontendUrl.replace(/\/+$/, '')
         return reply.redirect(`${frontend}/auth/oidc/callback#access_token=${token}&token_type=bearer`, 307)

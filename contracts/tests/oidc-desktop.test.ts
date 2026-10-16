@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { tokenFromFragment } from './support/flows'
@@ -9,8 +10,16 @@ import { type RunningStack, startSubject } from './support/stacks'
 const DESKTOP = 'launchkit://auth/callback'
 const FRONTEND = 'http://localhost:5173'
 
-const login = (api: Api, target?: string): Promise<Reply> =>
-  api.get(`/api/auth/oidc/login${target === undefined ? '' : `?redirect_target=${encodeURIComponent(target)}`}`)
+const newNonce = (): string => randomBytes(32).toString('base64url')
+
+/** Login with a redirect_target and, unless `nonce` is null, a desktop_nonce (a fresh 43 character one by default). */
+const login = (api: Api, target?: string, nonce: string | null | undefined = undefined): Promise<Reply> => {
+  const params: string[] = []
+  if (target !== undefined) params.push(`redirect_target=${encodeURIComponent(target)}`)
+  const value = nonce === undefined ? (target === undefined ? null : newNonce()) : nonce
+  if (value !== null) params.push(`desktop_nonce=${encodeURIComponent(value)}`)
+  return api.get(`/api/auth/oidc/login${params.length ? `?${params.join('&')}` : ''}`)
+}
 
 const stateKeys = async (): Promise<string[]> => (await redis().keys('oidc_state:*')).sort()
 
@@ -59,13 +68,16 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
     ])
   })
 
-  it('D2 state is stored with nonce, code_verifier and redirect_target', async () => {
-    const reply = await login(api, DESKTOP)
+  it('D2 state is stored with nonce, code_verifier, redirect_target and desktop_nonce', async () => {
+    const desktopNonce = newNonce()
+    expect(desktopNonce).toHaveLength(43)
+    const reply = await login(api, DESKTOP, desktopNonce)
     const location = new URL(reply.headers.get('location') as string)
     const key = `oidc_state:${location.searchParams.get('state')}`
     const stored = JSON.parse((await redis().get(key)) as string)
-    expect(Object.keys(stored).sort()).toEqual(['code_verifier', 'nonce', 'redirect_target'])
+    expect(Object.keys(stored).sort()).toEqual(['code_verifier', 'desktop_nonce', 'nonce', 'redirect_target'])
     expect(stored.redirect_target).toBe(DESKTOP)
+    expect(stored.desktop_nonce).toBe(desktopNonce)
     expect(stored.nonce).toBe(location.searchParams.get('nonce'))
     const ttl = await redis().ttl(key)
     expect(ttl).toBeGreaterThan(590)
@@ -73,12 +85,13 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
   })
 
   it('D3 callback redirects to the desktop deep link with an app token in the fragment', async () => {
-    const begin = await login(api, DESKTOP)
+    const desktopNonce = newNonce()
+    const begin = await login(api, DESKTOP, desktopNonce)
     const reply = await finishCallback(api, idp, begin, 'oidc-d3')
     expect(reply.status).toBe(307)
     const location = reply.headers.get('location') as string
     expect(location.startsWith(`${DESKTOP}#access_token=`)).toBe(true)
-    expect(location.endsWith('&token_type=bearer')).toBe(true)
+    expect(location.endsWith(`&token_type=bearer&desktop_nonce=${desktopNonce}`)).toBe(true)
     const me = await api.get('/api/users/me', { token: tokenFromFragment(reply) as string })
     expect(me.status).toBe(200)
     expect(me.json.email).toBe('oidc-d3@example.com')
@@ -103,8 +116,28 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
     })
   }
 
+  it('D4 rejects a missing or short desktop_nonce', async () => {
+    const before = await stateKeys()
+    for (const nonce of [null, '', 'x'.repeat(31)]) {
+      const reply = await login(api, DESKTOP, nonce)
+      expect(reply.status, String(nonce)).toBe(400)
+      expect(reply.json).toEqual({ detail: 'Invalid desktop_nonce' })
+      expect(reply.headers.get('location')).toBeNull()
+      expect(await stateKeys()).toEqual(before)
+    }
+    const boundary = await login(api, DESKTOP, 'x'.repeat(32))
+    expect(boundary.status).toBe(307)
+  })
+
+  it('D4 rejects an invalid redirect_target before it looks at the desktop_nonce', async () => {
+    const reply = await login(api, 'https://evil.example/cb', null)
+    expect(reply.status).toBe(400)
+    expect(reply.json).toEqual({ detail: 'Invalid redirect_target' })
+  })
+
   it('D5 without redirect_target the state and the redirect are unchanged', async () => {
-    const begin = await login(api)
+    // A desktop_nonce without a redirect_target changes nothing and is not stored.
+    const begin = await login(api, undefined, newNonce())
     expect(begin.status).toBe(307)
     const state = new URL(begin.headers.get('location') as string).searchParams.get('state')
     const stored = JSON.parse((await redis().get(`oidc_state:${state}`)) as string)

@@ -3,7 +3,7 @@ import hashlib
 import json
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +26,7 @@ from app.services.workspace_service import create_personal_workspace_for_user
 
 router = APIRouter(prefix="/api/auth/oidc", tags=["auth"])
 OIDC_STATE_TTL = 600
+DESKTOP_NONCE_MIN_LENGTH = 32
 
 
 class OIDCConfigResponse(BaseModel):
@@ -62,7 +63,10 @@ async def oidc_config():
 
 
 @router.get("/login")
-async def oidc_login(redirect_target: str | None = Query(default=None)):
+async def oidc_login(
+    redirect_target: str | None = Query(default=None),
+    desktop_nonce: str | None = Query(default=None),
+):
     settings = get_settings()
     if not settings.oidc_client_id:
         raise HTTPException(status_code=500, detail="OIDC_CLIENT_ID is required")
@@ -71,8 +75,12 @@ async def oidc_login(redirect_target: str | None = Query(default=None)):
     if not authorization_endpoint:
         raise HTTPException(status_code=500, detail="OIDC discovery is missing authorization_endpoint")
     # The desktop app asks for its own deep link; only exact allowlisted URLs are honoured.
-    if redirect_target is not None and redirect_target not in settings.oidc_desktop_redirects:
-        raise HTTPException(status_code=400, detail="Invalid redirect_target")
+    if redirect_target is not None:
+        if redirect_target not in settings.oidc_desktop_redirects:
+            raise HTTPException(status_code=400, detail="Invalid redirect_target")
+        # The app proves the deep link answers a sign-in it started with a nonce of its own.
+        if desktop_nonce is None or len(desktop_nonce) < DESKTOP_NONCE_MIN_LENGTH:
+            raise HTTPException(status_code=400, detail="Invalid desktop_nonce")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -83,6 +91,7 @@ async def oidc_login(redirect_target: str | None = Query(default=None)):
     state_payload = {"nonce": nonce, "code_verifier": code_verifier}
     if redirect_target is not None:
         state_payload["redirect_target"] = redirect_target
+        state_payload["desktop_nonce"] = desktop_nonce
     r = await get_redis()
     await r.set(f"oidc_state:{state}", json.dumps(state_payload), ex=OIDC_STATE_TTL)
 
@@ -380,6 +389,9 @@ async def oidc_callback(
     token = await get_jwt_strategy().write_token(user)
     redirect_target = state_data.get("redirect_target")
     if redirect_target:
-        return RedirectResponse(f"{redirect_target}#access_token={token}&token_type=bearer")
+        desktop_nonce = quote(state_data.get("desktop_nonce") or "", safe="")
+        return RedirectResponse(
+            f"{redirect_target}#access_token={token}&token_type=bearer&desktop_nonce={desktop_nonce}"
+        )
     frontend_url = get_settings().frontend_url.rstrip("/")
     return RedirectResponse(f"{frontend_url}/auth/oidc/callback#access_token={token}&token_type=bearer")
