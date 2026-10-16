@@ -13,6 +13,8 @@ export interface TestServerOptions {
   health?: 'ok' | 'status-503' | 'unhealthy-body'
   /** A server without CORS for app://launchkit: any request carrying `Origin` gets 403. */
   rejectOrigin?: boolean
+  /** How many workspaces `/api/workspaces` lists (default 1). */
+  workspaceCount?: number
 }
 
 export interface TestServer {
@@ -50,7 +52,12 @@ const workspace = {
 
 /** A minimal stand-in for a launchkit server: just enough for the app to render. */
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
-  const { hasUsers = true, health = 'ok', rejectOrigin = true } = options
+  const { hasUsers = true, health = 'ok', rejectOrigin = true, workspaceCount = 1 } = options
+  const workspaceList = Array.from({ length: workspaceCount }, (_, index) => ({
+    ...workspace,
+    id: `ws-${index + 1}`,
+    name: index === 0 ? workspace.name : `Workspace ${index + 1}`,
+  }))
   const requests: RecordedRequest[] = []
 
   const server = http.createServer((req, res) => {
@@ -81,8 +88,10 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
         return send(200, { light: null, dark: null })
       case '/api/users/me':
         return authorized ? send(200, user) : send(401, { detail: 'Not authenticated' })
+      case '/api/auth/login':
+        return req.method === 'POST' ? send(200, { access_token: TOKEN, token_type: 'bearer' }) : send(405, { detail: 'Method Not Allowed' })
       case '/api/workspaces':
-        return authorized ? send(200, [workspace]) : send(401, { detail: 'Not authenticated' })
+        return authorized ? send(200, workspaceList) : send(401, { detail: 'Not authenticated' })
       case '/api/files':
         return authorized ? send(200, []) : send(401, { detail: 'Not authenticated' })
       case '/api/settings/files':
