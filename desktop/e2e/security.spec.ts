@@ -15,13 +15,16 @@ test.afterEach(async () => {
 
 const LAUNCHKIT_MEMBERS = [
   'appVersion',
+  'getMode',
   'getServerUrl',
   'installUpdate',
   'isDesktop',
   'onUpdateAvailable',
   'openExternal',
+  'openLogs',
   'platform',
   'setServerUrl',
+  'startLocal',
   'startSso',
 ]
 

@@ -19,6 +19,9 @@ const api: LaunchkitApi = {
   },
   installUpdate: () => ipcRenderer.invoke(IPC.installUpdate),
   startSso: () => ipcRenderer.invoke(IPC.startSso),
+  getMode: () => ipcRenderer.invoke(IPC.getMode),
+  startLocal: () => ipcRenderer.invoke(IPC.startLocal),
+  openLogs: () => ipcRenderer.invoke(IPC.openLogs),
 }
 
 contextBridge.exposeInMainWorld('launchkit', api)

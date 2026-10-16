@@ -158,7 +158,7 @@ test('an incomplete deep link shows the message and stores no token', async () =
   // No server configured yet: the connect screen carries the message.
   await closeAll()
   const fresh = await launchApp()
-  await expect(fresh.page.getByRole('heading', { name: 'Connect to a server' })).toBeVisible()
+  await expect(fresh.page.getByRole('button', { name: 'Use this computer' })).toBeVisible()
   await openUrl(fresh.app, 'launchkit://auth/callback')
   await expect(fresh.page).toHaveURL('app://launchkit/connect?sso=failed')
   await expect(fresh.page.getByRole('alert')).toHaveText('Sign-in did not complete')

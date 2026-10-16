@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -7,9 +7,10 @@ import { type LocalServer, startLocalServer } from '../../src/local/local-server
 const TOKEN = 'a'.repeat(64)
 let server: LocalServer
 let base: string
+let root = ''
 
 beforeAll(async () => {
-  const root = mkdtempSync(join(tmpdir(), 'launchkit-local-'))
+  root = mkdtempSync(join(tmpdir(), 'launchkit-local-'))
   server = await startLocalServer({
     dataDir: join(root, 'db'),
     filesDir: join(root, 'files'),
@@ -21,6 +22,7 @@ beforeAll(async () => {
 })
 afterAll(async () => {
   await server.close()
+  rmSync(root, { recursive: true, force: true })
 })
 
 const ROUTES: Array<[string, string]> = [

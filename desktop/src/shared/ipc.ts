@@ -5,6 +5,9 @@ export const IPC = {
   openExternal: 'shell:open-external',
   installUpdate: 'updater:install',
   startSso: 'sso:start',
+  getMode: 'mode:get',
+  startLocal: 'local:start',
+  openLogs: 'local:open-logs',
   updateAvailable: 'updater:update-available',
 } as const
 
@@ -12,7 +15,7 @@ export type SetServerUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'invalid-url' | 'insecure' | 'unreachable' }
 
-/** What the renderer sees as `window.launchkit`. Exactly these nine members. */
+/** What the renderer sees as `window.launchkit`. Exactly these twelve members. */
 export interface LaunchkitApi {
   isDesktop: true
   platform: string
@@ -24,6 +27,12 @@ export interface LaunchkitApi {
   installUpdate(): Promise<void>
   /** Opens the server's SSO login in the system browser; the sign-in returns through launchkit://auth/callback. */
   startSso(): Promise<void>
+  /** `null` while the choice between a server and this computer is open. */
+  getMode(): Promise<'remote' | 'local' | null>
+  /** Starts (or joins) the local backend; resolves once it listens or has failed. */
+  startLocal(): Promise<{ ok: boolean }>
+  /** Opens the folder with the local backend's logs. */
+  openLogs(): Promise<void>
 }
 
 export const APP_VERSION_ARG = '--launchkit-app-version='

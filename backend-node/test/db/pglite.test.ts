@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
@@ -62,7 +62,8 @@ describe('the Drizzle schema on PGlite', () => {
   })
 
   it('applies the migrations to a PGlite directory on disk', async () => {
-    const dir = join(mkdtempSync(join(tmpdir(), 'launchkit-pglite-')), 'db')
+    const root = mkdtempSync(join(tmpdir(), 'launchkit-pglite-'))
+    const dir = join(root, 'db')
     const first = await connectPglite(dir)
     await applyMigrations(first.db)
     await first.close()
@@ -75,5 +76,6 @@ describe('the Drizzle schema on PGlite', () => {
     )
     expect(tables.map((row) => row.table_name)).toEqual(SIX_TABLES)
     await second.close()
+    rmSync(root, { recursive: true, force: true })
   })
 })

@@ -39,12 +39,15 @@ export function newUserDataDir(config?: Record<string, unknown>): string {
   return dir
 }
 
-export async function launchApp(options: { userDataDir?: string; serverUrl?: string } = {}): Promise<LaunchedApp> {
-  const userDataDir = options.userDataDir ?? newUserDataDir(options.serverUrl ? { serverUrl: options.serverUrl } : undefined)
+export async function launchApp(
+  options: { userDataDir?: string; serverUrl?: string; config?: Record<string, unknown>; args?: string[]; env?: Record<string, string> } = {},
+): Promise<LaunchedApp> {
+  const userDataDir = options.userDataDir ?? newUserDataDir(options.config ?? (options.serverUrl ? { serverUrl: options.serverUrl } : undefined))
   const app = await electron.launch({
     executablePath: process.env.LAUNCHKIT_E2E_EXECUTABLE,
-    args: launchArgs(userDataDir),
+    args: [...launchArgs(userDataDir), ...(options.args ?? [])],
     cwd: DESKTOP_ROOT,
+    env: { ...(process.env as Record<string, string>), ...options.env },
   })
   launched.push(app)
   const page = await app.firstWindow()

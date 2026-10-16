@@ -43,7 +43,7 @@ class FakeChild extends EventEmitter implements ChildLike {
 }
 
 function backendWith(children: FakeChild[]) {
-  const fork = vi.fn((_entry: string, _options: { serviceName: string }) => {
+  const fork = vi.fn<(entry: string, options: { serviceName: string }) => ChildLike>(() => {
     const child = children.shift()
     if (!child) throw new Error('no more fake children')
     return child

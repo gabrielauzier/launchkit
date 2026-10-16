@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { type AddressInfo, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,9 +7,11 @@ import { type LocalServer, startLocalServer } from '../../src/local/local-server
 
 const TOKEN = 'b'.repeat(64)
 const open: LocalServer[] = []
+const roots: string[] = []
 
 function options(extra: Partial<Parameters<typeof startLocalServer>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'launchkit-local-'))
+  roots.push(root)
   return { dataDir: join(root, 'db'), filesDir: join(root, 'files'), secretKey: 'local-test-secret', sessionToken: TOKEN, logger: false as const, ...extra }
 }
 
@@ -23,6 +25,7 @@ afterEach(async () => {
   vi.useRealTimers()
   delete process.env.REDIS_URL
   while (open.length) await open.pop()!.close()
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
 })
 
 describe('the local server', () => {

@@ -16,6 +16,7 @@ test.afterEach(async () => {
 test('connects, signs in, switches workspace and uploads a file', async () => {
   // A fresh install: no server is configured yet.
   const { page } = await launchApp({ userDataDir: newUserDataDir() })
+  await page.getByRole('button', { name: 'Connect to a server' }).click()
   await expect(page.getByRole('heading', { name: 'Connect to a server' })).toBeVisible()
   await page.getByLabel('Server URL').fill(server.url)
   await page.getByRole('button', { name: 'Connect' }).click()
