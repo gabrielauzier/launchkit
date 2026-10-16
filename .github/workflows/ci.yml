@@ -106,6 +106,9 @@ jobs:
       - name: Test CI change selection
         run: python3 .github/ci/test_changes.py
 
+      - name: Test CI workflow wiring
+        run: python3 .github/ci/test_workflow_jobs.py
+
       - name: Check the Alembic revision chain
         run: python3 backend/scripts/check_migration_chain.py
 
@@ -207,3 +210,52 @@ jobs:
           test ! -e scripts/eject.sh
           test -d charts/acme-app
           if grep -rIil launchkit . ; then echo "template name left behind"; exit 1; fi
+
+  contract-drift:
+    name: Contract Drift
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect backend-relevant changes
+        id: backend-changes
+        working-directory: .
+        run: python3 .github/ci/changes.py
+
+      - name: Skip contract drift check
+        if: steps.backend-changes.outputs.run_backend == 'false'
+        run: echo "No backend-relevant changes; skipping the contract drift check."
+
+      - name: Set up Python
+        if: steps.backend-changes.outputs.run_backend != 'false'
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Set up uv
+        if: steps.backend-changes.outputs.run_backend != 'false'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
+
+      - name: Install dependencies
+        if: steps.backend-changes.outputs.run_backend != 'false'
+        run: uv sync --locked --all-extras
+
+      # contracts/openapi.json is the frozen HTTP contract: it must be exactly
+      # what the Python backend exports today.
+      - name: Check contracts/openapi.json is current
+        if: steps.backend-changes.outputs.run_backend != 'false'
+        working-directory: .
+        run: backend/.venv/bin/python backend/scripts/export_openapi.py --check
