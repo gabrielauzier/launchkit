@@ -17,6 +17,8 @@ export interface TestServerOptions {
   workspaceCount?: number
   /** What `/api/info` reports as `update_check_repo` (default null). */
   updateCheckRepo?: string | null
+  /** Whether `/api/auth/oidc/config` offers SSO (default false). */
+  oidcEnabled?: boolean
 }
 
 export interface UploadedFile {
@@ -63,7 +65,7 @@ const workspace = {
 
 /** A minimal stand-in for a launchkit server: just enough for the app to render. */
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
-  const { hasUsers = true, health = 'ok', rejectOrigin = true, workspaceCount = 1, updateCheckRepo = null } = options
+  const { hasUsers = true, health = 'ok', rejectOrigin = true, workspaceCount = 1, updateCheckRepo = null, oidcEnabled = false } = options
   const workspaceList = Array.from({ length: workspaceCount }, (_, index) => ({
     ...workspace,
     id: `ws-${index + 1}`,
@@ -106,7 +108,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
         case '/api/setup/status':
           return send(200, { has_users: hasUsers })
         case '/api/auth/oidc/config':
-          return send(200, { enabled: false, provider_name: '', local_auth_enabled: true })
+          return send(200, { enabled: oidcEnabled, provider_name: oidcEnabled ? 'Pocket ID' : '', local_auth_enabled: true })
         case '/api/admin/registration-status':
           return send(200, { enabled: false })
         case '/api/admin/default-colors':
