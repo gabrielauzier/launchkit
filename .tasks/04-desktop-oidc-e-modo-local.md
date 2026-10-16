@@ -18,15 +18,15 @@ Ao fim, o login por SSO abre no navegador do sistema e volta ao app por deep lin
 
 ### Login por SSO pelo navegador do sistema
 
-1. Dado um servidor com OIDC ligado, quando escolho entrar por SSO no app, então `shell.openExternal` abre `<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback` e continua existindo 1 janela do app.
-2. Dado `OIDC_DESKTOP_REDIRECT=launchkit://auth/callback`, quando `GET /api/auth/oidc/login?redirect_target=launchkit://auth/callback` roda, então 307 para o provedor e o Redis guarda `oidc_state:<state>` com JSON `{"nonce", "code_verifier", "redirect_target"}`.
-3. Dado o `state` do critério 2, quando `GET /api/auth/oidc/callback` recebe `code` e `state` válidos, então 307 para `launchkit://auth/callback#access_token=<jwt>&token_type=bearer`.
-4. Se `redirect_target` não é exatamente um valor de `OIDC_DESKTOP_REDIRECT` (ou a variável está vazia), então `GET /api/auth/oidc/login` responde 400 `{"detail": "Invalid redirect_target"}`, não redireciona ao provedor e não grava nada no Redis.
+1. Dado um servidor com OIDC ligado, quando escolho entrar por SSO no app, então `shell.openExternal` abre `<serverUrl>/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback&desktop_nonce=<nonce>` e continua existindo 1 janela do app; o `<nonce>` é gerado pelo app (32 bytes aleatórios em base64url) e fica guardado em memória como fluxo pendente por 10 minutos.
+2. Dado `OIDC_DESKTOP_REDIRECT=launchkit://auth/callback`, quando `GET /api/auth/oidc/login?redirect_target=launchkit://auth/callback&desktop_nonce=<nonce de 43 caracteres>` roda, então 307 para o provedor e o Redis guarda `oidc_state:<state>` com JSON `{"nonce", "code_verifier", "redirect_target", "desktop_nonce"}`.
+3. Dado o `state` do critério 2, quando `GET /api/auth/oidc/callback` recebe `code` e `state` válidos, então 307 para `launchkit://auth/callback#access_token=<jwt>&token_type=bearer&desktop_nonce=<nonce>`, com o mesmo nonce do critério 2.
+4. Se `redirect_target` não é exatamente um valor de `OIDC_DESKTOP_REDIRECT` (ou a variável está vazia), então `GET /api/auth/oidc/login` responde 400 `{"detail": "Invalid redirect_target"}`; se `redirect_target` vem sem `desktop_nonce` ou com `desktop_nonce` de menos de 32 caracteres, responde 400 `{"detail": "Invalid desktop_nonce"}`; nos dois casos não redireciona ao provedor e não grava nada no Redis.
 5. Quando `GET /api/auth/oidc/login` roda sem `redirect_target`, então o comportamento é o de hoje: o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`.
 6. Quando a suíte de contrato roda, então ela contém um caso para cada um dos critérios 2 a 5 e todos passam no backend Python e no backend Node.
-7. Quando o sistema entrega `launchkit://auth/callback#access_token=<jwt>&token_type=bearer` ao app (macOS `open-url`; Windows e Linux `second-instance`), então o app grava o token, vai para `/` e `GET /api/users/me` retorna 200.
+7. Quando o sistema entrega `launchkit://auth/callback#access_token=<jwt>&token_type=bearer&desktop_nonce=<nonce>` ao app (macOS `open-url`; Windows e Linux `second-instance`) com o `<nonce>` igual ao do fluxo pendente criado há menos de 10 minutos, então o app grava o token, vai para `/`, `GET /api/users/me` retorna 200 e o fluxo pendente é consumido.
 8. Quando o mesmo deep link chega 2 vezes, então o token é gravado 1 vez e a navegação ocorre 1 vez.
-9. Se o deep link chega sem `access_token`, ou antes de haver servidor configurado, então o app vai para a tela de conexão ou `/login` com a mensagem `Sign-in did not complete` (pt-BR: `O login não foi concluído`) e nenhum token é gravado.
+9. Se o deep link chega sem `access_token`, ou antes de haver servidor configurado, ou com `desktop_nonce` ausente, diferente do pendente, expirado ou já usado, ou sem fluxo pendente, então o app vai para a tela de conexão ou `/login` com a mensagem `Sign-in did not complete` (pt-BR: `O login não foi concluído`) e nenhum token é gravado.
 10. Se o deep link tem host e caminho diferentes de `auth/callback`, então o app o ignora e não navega.
 
 ### Modo local
@@ -127,7 +127,7 @@ stateDiagram-v2
 
 | Decision | Shape | Alternative rejected |
 |---|---|---|
-| Parâmetro e allowlist do OIDC no desktop | query `redirect_target` em `GET /api/auth/oidc/login`; env `OIDC_DESKTOP_REDIRECT` com URLs exatas separadas por vírgula; `redirect_target` entra no payload de `oidc_state:<state>`; o callback redireciona para ele com `#access_token=<jwt>&token_type=bearer`; mesma implementação nas duas stacks | Rotas novas `/api/auth/oidc/desktop/*`: duplicam o fluxo em duas stacks. Redirect de loopback (RFC 8252) com porta aleatória: exige registrar a porta no provedor. |
+| Parâmetro e allowlist do OIDC no desktop | query `redirect_target` em `GET /api/auth/oidc/login`; env `OIDC_DESKTOP_REDIRECT` com URLs exatas separadas por vírgula; `redirect_target` e `desktop_nonce` (gerado pelo app, mínimo 32 caracteres) entram no payload de `oidc_state:<state>`; o callback redireciona para o destino com `#access_token=<jwt>&token_type=bearer&desktop_nonce=<nonce>`, e o app só aceita o deep link com o nonce de um fluxo pendente iniciado por ele (uso único, 10 minutos); mesma implementação nas duas stacks | Rotas novas `/api/auth/oidc/desktop/*`: duplicam o fluxo em duas stacks. Redirect de loopback (RFC 8252) com porta aleatória: exige registrar a porta no provedor. |
 | Deep link | protocolo `launchkit://` registrado no sistema; só `launchkit://auth/callback` é tratado | Janela de login embutida: vários provedores bloqueiam webviews. |
 | Layout dos dados locais | `userData/db` (PGlite), `userData/files`, `userData/backups/db-<timestamp>/`, `userData/logs/` | Guardar tudo em um único arquivo SQLite: o backend Node usa o schema PostgreSQL da task 1. |
 | Formato de exportação | zip com `manifest.json` `{"formatVersion": 1, "appVersion", "schemaRevision"}`, `db.sql` e `files/` | Cópia crua do diretório do PGlite: preso à versão do PGlite e não importa para um servidor PostgreSQL. |
