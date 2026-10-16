@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useAutoUpdateCheck } from '@/hooks/use-auto-update-check'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
+import { isDesktop } from '@/lib/platform'
 
 const SIX_HOURS = 1000 * 60 * 60 * 6
 
@@ -33,7 +34,8 @@ export function useLatestRelease() {
   return useQuery<LatestRelease | null>({
     queryKey: ['latest-release', updateCheckRepo],
     queryFn: () => fetchLatestRelease(updateCheckRepo!),
-    enabled: enabled && !!updateCheckRepo,
+    // The desktop app updates itself (electron-updater), so it never asks GitHub.
+    enabled: enabled && !!updateCheckRepo && !isDesktop(),
     staleTime: SIX_HOURS,
     gcTime: SIX_HOURS,
     retry: 1,

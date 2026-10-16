@@ -215,7 +215,15 @@
     },
     "menu": {
       "file": "File",
-      "switchServer": "Switch server"
+      "switchServer": "Switch server",
+      "edit": "Edit",
+      "view": "View",
+      "window": "Window",
+      "help": "Help",
+      "documentation": "launchkit on GitHub"
+    },
+    "update": {
+      "restart": "Restart to update to {{version}}"
     }
   },
   "files": {

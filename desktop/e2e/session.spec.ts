@@ -66,3 +66,26 @@ test('a server without CORS answers 200', async () => {
     expect(request.headers.referer, request.path).toBeUndefined()
   }
 })
+
+test('renderer never calls api.github.com', async () => {
+  const remote = await server({ updateCheckRepo: 'acme/launchkit' })
+  const { page } = await launchApp({ serverUrl: remote.url })
+  const external: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).hostname.endsWith('github.com')) external.push(request.url())
+  })
+  // The CSP (connect-src 'self') stops such a request before it leaves, but the
+  // renderer logs the attempt, which still means the code tried to reach GitHub.
+  page.on('console', (message) => {
+    if (message.text().includes('api.github.com')) external.push(message.text())
+  })
+  await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()
+  await page.evaluate((token) => localStorage.setItem('token', token), remote.token)
+  await page.goto('app://launchkit/files')
+  await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible()
+  // The server names a repository to check, so the web app would query GitHub here.
+  expect(remote.requests.some((request) => request.path === '/api/info')).toBe(true)
+  await page.waitForTimeout(1500)
+
+  expect(external).toEqual([])
+})

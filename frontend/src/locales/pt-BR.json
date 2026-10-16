@@ -215,7 +215,15 @@
     },
     "menu": {
       "file": "Arquivo",
-      "switchServer": "Trocar de servidor"
+      "switchServer": "Trocar de servidor",
+      "edit": "Editar",
+      "view": "Exibir",
+      "window": "Janela",
+      "help": "Ajuda",
+      "documentation": "launchkit no GitHub"
+    },
+    "update": {
+      "restart": "Reiniciar para atualizar para {{version}}"
     }
   },
   "files": {

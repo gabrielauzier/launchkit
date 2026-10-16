@@ -4,17 +4,23 @@
   "version": "0.1.0",
   "private": true,
   "description": "launchkit desktop client",
+  "author": {
+    "name": "launchkit",
+    "email": "noreply@launchkit.invalid"
+  },
+  "homepage": "https://github.com/gabrielauzier/launchkit",
   "main": "./out/main/index.js",
   "scripts": {
     "build:frontend": "npm --prefix ../frontend run build:desktop",
     "build": "electron-vite build",
     "build:all": "npm run build:frontend && npm run build",
-    "package:dir": "npm run build && electron-builder --dir",
+    "package:dir": "npm run build:all && electron-builder --dir -c.mac.identity=-",
     "dev": "electron-vite dev",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:e2e": "npm run build:all && playwright test"
+    "test:e2e": "npm run build:all && playwright test",
+    "package:unsigned": "npm run build:all && electron-builder -c.mac.identity=-"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
@@ -32,6 +38,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
     "vite": "^8.2.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "yaml": "^2.9.1"
   }
 }

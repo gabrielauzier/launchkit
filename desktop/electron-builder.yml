@@ -5,6 +5,11 @@ directories:
 files:
   - out/**
   - package.json
+# The renderer is the frontend's desktop build; the main process serves it from
+# resources/frontend (see src/main/index.ts).
+extraResources:
+  - from: ../frontend/dist-desktop
+    to: frontend
 asar: true
 # Hardened Electron: no Node-as-runtime, no inspector flags, and the app code
 # is only loaded from the integrity-checked asar.
@@ -16,6 +21,37 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
   grantFileProtocolExtraPrivileges: false
+# Releases live in their own repository, set per environment (the release
+# workflow splits vars.LAUNCHKIT_DESKTOP_RELEASE_REPO into these two).
+publish:
+  provider: github
+  owner: ${env.LAUNCHKIT_DESKTOP_RELEASE_OWNER}
+  repo: ${env.LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}
 mac:
-  # Unsigned local builds; signing and notarization arrive with the release workflow.
-  identity: null
+  category: public.app-category.productivity
+  # Signing and notarization read CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID,
+  # APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment; without
+  # them the build is unsigned (local and CI checks pass -c.mac.identity=-, an ad-hoc signature).
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
+  # zip is what macOS auto-update downloads; dmg is what people install.
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  category: Utility
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]

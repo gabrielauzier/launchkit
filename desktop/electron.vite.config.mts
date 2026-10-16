@@ -5,6 +5,9 @@ import { defineConfig } from 'electron-vite'
 // served by the app:// protocol, so aliases, Tailwind and i18n stay in one place.
 export default defineConfig({
   main: {
+    // Only a build made with LAUNCHKIT_DESKTOP_SIGNED=true (the release workflow
+    // with signing secrets) may start the auto updater.
+    define: { __SIGNED_BUILD__: JSON.stringify(process.env.LAUNCHKIT_DESKTOP_SIGNED === 'true') },
     build: { rollupOptions: { input: { index: 'src/main/index.ts' } } },
   },
   preload: {

@@ -14,7 +14,9 @@ export function electronBinary(): string {
 /** With `LAUNCHKIT_E2E_EXECUTABLE` set, the tests drive a packaged app instead of `out/`. */
 export function launchArgs(userDataDir: string): string[] {
   const userData = `--user-data-dir=${userDataDir}`
-  return process.env.LAUNCHKIT_E2E_EXECUTABLE ? [userData] : [MAIN_ENTRY, userData]
+  // CI Linux runners cannot set up Chromium's SUID sandbox for an unpacked Electron.
+  const flags = process.env.CI && process.platform === 'linux' ? ['--no-sandbox', userData] : [userData]
+  return process.env.LAUNCHKIT_E2E_EXECUTABLE ? flags : [MAIN_ENTRY, ...flags]
 }
 
 export interface LaunchedApp {
