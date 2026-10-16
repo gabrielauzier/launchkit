@@ -21,6 +21,18 @@ export class RedisStore implements KeyValueStore {
     this.redis.on('error', () => undefined)
   }
 
+  /** Resolves once the connection is up (a command sent before that fails: the offline queue is off). */
+  async ready(timeoutMs = 5000): Promise<void> {
+    if (this.redis.status === 'ready') return
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('redis did not become ready')), timeoutMs)
+      this.redis.once('ready', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
+
   async get(key: string): Promise<string | null> {
     return this.redis.get(key)
   }

@@ -7,9 +7,11 @@ import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fast
 import type { AppContext } from './context.ts'
 import { decorateRequest } from './plugins/auth.ts'
 import { registerErrorHandling } from './plugins/errors.ts'
+import { adminRoutes } from './routes/admin.ts'
 import { authRoutes } from './routes/auth.ts'
 import { fileRoutes } from './routes/files.ts'
 import { healthRoutes } from './routes/health.ts'
+import { infoRoutes } from './routes/info.ts'
 import { oidcRoutes } from './routes/oidc.ts'
 import { passkeyRoutes } from './routes/passkeys.ts'
 import { setupRoutes } from './routes/setup.ts'
@@ -40,7 +42,9 @@ export async function buildApp(ctx: AppContext, options: FastifyServerOptions = 
   registerErrorHandling(app)
 
   await app.register(healthRoutes)
+  await app.register(adminRoutes(ctx))
   await app.register(authRoutes(ctx))
+  await app.register(infoRoutes(ctx))
   await app.register(twoFactorRoutes(ctx))
   await app.register(passkeyRoutes(ctx))
   await app.register(oidcRoutes(ctx))

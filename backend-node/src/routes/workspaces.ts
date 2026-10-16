@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { AppContext } from '../context.ts'
 import { users, workspaces } from '../db/schema.ts'
 import { HttpError } from '../http/http-error.ts'
+import { isValidTimezone } from '../services/timezones.ts'
 import { authGuards } from '../plugins/auth.ts'
 import { workspaceContext } from '../plugins/workspace.ts'
 import { UUID_PATTERN, createUser, getUserById } from '../services/users.ts'
@@ -50,17 +51,6 @@ const memberInviteBody = z.object({
 })
 
 const memberRoleBody = z.object({ role: z.string() })
-
-/** `is_valid_timezone`: an IANA name the runtime can load, spelled with its canonical capitals. */
-function isValidTimezone(name: string): boolean {
-  if (!/^[A-Z]/.test(name)) return false
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: name })
-    return true
-  } catch {
-    return false
-  }
-}
 
 export function workspaceRoutes(ctx: AppContext) {
   return async (app: FastifyInstance): Promise<void> => {
