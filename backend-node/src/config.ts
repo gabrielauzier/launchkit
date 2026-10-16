@@ -37,6 +37,8 @@ export interface Config {
   oidcRolesClaim: string
   oidcAdminRoles: string
   oidcWorkspaceRoleMap: string
+  /** Exact URLs the desktop app may ask the OIDC callback to return to. */
+  oidcDesktopRedirects: string[]
   redisUrl: string | null
   trustedProxyHops: number
   updateCheckRepo: string
@@ -175,6 +177,10 @@ export function loadConfig(env: Source = process.env, options: LoadConfigOptions
     oidcRolesClaim: text('OIDC_ROLES_CLAIM', 'groups'),
     oidcAdminRoles: text('OIDC_ADMIN_ROLES', ''),
     oidcWorkspaceRoleMap: text('OIDC_WORKSPACE_ROLE_MAP', ''),
+    oidcDesktopRedirects: text('OIDC_DESKTOP_REDIRECT', '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
     // The Python default points at localhost; the Node backend can run without Redis at all.
     redisUrl: redisUrl === undefined ? 'redis://localhost:6379/0' : redisUrl || null,
     trustedProxyHops: int('TRUSTED_PROXY_HOPS', 0),

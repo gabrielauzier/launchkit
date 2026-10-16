@@ -62,7 +62,7 @@ async def oidc_config():
 
 
 @router.get("/login")
-async def oidc_login():
+async def oidc_login(redirect_target: str | None = Query(default=None)):
     settings = get_settings()
     if not settings.oidc_client_id:
         raise HTTPException(status_code=500, detail="OIDC_CLIENT_ID is required")
@@ -70,6 +70,9 @@ async def oidc_login():
     authorization_endpoint = discovery.get("authorization_endpoint")
     if not authorization_endpoint:
         raise HTTPException(status_code=500, detail="OIDC discovery is missing authorization_endpoint")
+    # The desktop app asks for its own deep link; only exact allowlisted URLs are honoured.
+    if redirect_target is not None and redirect_target not in settings.oidc_desktop_redirects:
+        raise HTTPException(status_code=400, detail="Invalid redirect_target")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -77,12 +80,11 @@ async def oidc_login():
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
+    state_payload = {"nonce": nonce, "code_verifier": code_verifier}
+    if redirect_target is not None:
+        state_payload["redirect_target"] = redirect_target
     r = await get_redis()
-    await r.set(
-        f"oidc_state:{state}",
-        json.dumps({"nonce": nonce, "code_verifier": code_verifier}),
-        ex=OIDC_STATE_TTL,
-    )
+    await r.set(f"oidc_state:{state}", json.dumps(state_payload), ex=OIDC_STATE_TTL)
 
     params = {
         "client_id": settings.oidc_client_id,
@@ -376,5 +378,8 @@ async def oidc_callback(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
     token = await get_jwt_strategy().write_token(user)
+    redirect_target = state_data.get("redirect_target")
+    if redirect_target:
+        return RedirectResponse(f"{redirect_target}#access_token={token}&token_type=bearer")
     frontend_url = get_settings().frontend_url.rstrip("/")
     return RedirectResponse(f"{frontend_url}/auth/oidc/callback#access_token={token}&token_type=bearer")

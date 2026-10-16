@@ -257,17 +257,25 @@ export function oidcRoutes(ctx: AppContext) {
       }),
     )
 
-    typed.get('/api/auth/oidc/login', async (_request, reply) => {
+    const loginQuery = z.object({ redirect_target: z.string().optional() })
+    typed.get('/api/auth/oidc/login', { schema: { querystring: loginQuery } }, async (request, reply) => {
       if (!config.oidcClientId) throw new HttpError(500, 'OIDC_CLIENT_ID is required')
       const discovery = await discover()
       const authorizationEndpoint = discovery.authorization_endpoint
       if (!authorizationEndpoint) throw new HttpError(500, 'OIDC discovery is missing authorization_endpoint')
+      // The desktop app asks for its own deep link; only exact allowlisted URLs are honoured.
+      const { redirect_target: redirectTarget } = request.query
+      if (redirectTarget !== undefined && !config.oidcDesktopRedirects.includes(redirectTarget)) {
+        throw new HttpError(400, 'Invalid redirect_target')
+      }
 
       const state = tokenUrlsafe(32)
       const nonce = tokenUrlsafe(32)
       const codeVerifier = tokenUrlsafe(64)
       const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
-      await ctx.keyValueStore.set(`oidc_state:${state}`, JSON.stringify({ nonce, code_verifier: codeVerifier }), {
+      const statePayload: Record<string, string> = { nonce, code_verifier: codeVerifier }
+      if (redirectTarget !== undefined) statePayload.redirect_target = redirectTarget
+      await ctx.keyValueStore.set(`oidc_state:${state}`, JSON.stringify(statePayload), {
         ttlSeconds: OIDC_STATE_TTL_SECONDS,
       })
 
@@ -291,7 +299,7 @@ export function oidcRoutes(ctx: AppContext) {
         const { code, state } = request.query
         const raw = await ctx.keyValueStore.getdel(`oidc_state:${state}`)
         if (raw === null) throw new HttpError(400, 'Invalid or expired OIDC state')
-        const stateData = JSON.parse(raw) as { nonce: string; code_verifier?: string }
+        const stateData = JSON.parse(raw) as { nonce: string; code_verifier?: string; redirect_target?: string }
 
         const discovery = await discover()
         const tokens = await exchangeCode(discovery, code, stateData.code_verifier ?? '')
@@ -304,6 +312,9 @@ export function oidcRoutes(ctx: AppContext) {
         if (!user.isActive) throw new HttpError(403, 'User is inactive')
 
         const token = await writeAccessToken(config, user.id)
+        if (stateData.redirect_target) {
+          return reply.redirect(`${stateData.redirect_target}#access_token=${token}&token_type=bearer`, 307)
+        }
         const frontend = config.frontendUrl.replace(/\/+$/, '')
         return reply.redirect(`${frontend}/auth/oidc/callback#access_token=${token}&token_type=bearer`, 307)
       },
