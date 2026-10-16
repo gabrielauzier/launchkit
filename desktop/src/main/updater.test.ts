@@ -48,7 +48,8 @@ describe('updater', () => {
     const rejection = Promise.reject(new Error('net::ERR_INTERNET_DISCONNECTED'))
     // A rejection nobody observes is what Electron turns into an error dialog.
     const observed = vi.spyOn(rejection, 'then')
-    autoUpdater.checkForUpdates.mockReturnValue(rejection)
+    // A plain function: a vi.fn would itself call .then on the promise and hide the difference.
+    autoUpdater.checkForUpdates = (() => rejection) as typeof autoUpdater.checkForUpdates
 
     updater.start()
     await new Promise((resolve) => setImmediate(resolve))
