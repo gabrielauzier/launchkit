@@ -30,8 +30,14 @@ function readFuses(app: string): Record<string, boolean> {
 const app = packagedApp()
 
 describe('packaged app fuses', () => {
-  // `npm run package:dir` produces the app; without it there is nothing to read.
-  it.skipIf(!app)('packaged app fuses', () => {
+  // `npm run package:dir` produces the app. Locally, without it there is nothing
+  // to read and the test skips; in CI (CI is set) a missing app is a failure,
+  // otherwise the job would pass without ever reading a fuse.
+  it('packaged app fuses', (context) => {
+    if (!app) {
+      if (process.env.CI) expect.fail('no packaged app in release/: run `npm run package:dir` before the tests')
+      context.skip()
+    }
     const fuses = readFuses(app!)
     expect(fuses.RunAsNode).toBe(false)
     expect(fuses.EnableNodeCliInspectArguments).toBe(false)
