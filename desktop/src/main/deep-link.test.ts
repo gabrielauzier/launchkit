@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { createDeepLinkHandler, findDeepLink, parseDeepLink, setupDeepLinks } from './deep-link'
 
 const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl'
-const SIGN_IN = `launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer`
+const NONCE = 'n'.repeat(43)
+const SIGN_IN = `launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer&desktop_nonce=${NONCE}`
 
-function handlerWith(serverUrl: string | null = 'https://srv.example.com') {
+function handlerWith(serverUrl: string | null = 'https://srv.example.com', pending: string | null = NONCE) {
   const navigate = vi.fn()
   const focus = vi.fn()
-  const handle = createDeepLinkHandler({ getServerUrl: () => serverUrl, navigate, focus })
-  return { handle, navigate, focus }
+  const consumeNonce = vi.fn((nonce: string | null) => nonce !== null && nonce === pending)
+  const handle = createDeepLinkHandler({ getServerUrl: () => serverUrl, navigate, focus, consumeNonce })
+  return { handle, navigate, focus, consumeNonce }
 }
 
 describe('deep links', () => {
@@ -30,7 +32,7 @@ describe('deep links', () => {
   it('handles a different link after the first', () => {
     const { handle, navigate } = handlerWith()
     handle(SIGN_IN)
-    handle(`launchkit://auth/callback#access_token=${TOKEN}b&token_type=bearer`)
+    handle(`launchkit://auth/callback#access_token=${TOKEN}b&token_type=bearer&desktop_nonce=${NONCE}`)
     expect(navigate).toHaveBeenCalledTimes(2)
   })
 
@@ -40,6 +42,10 @@ describe('deep links', () => {
       'launchkit://auth/callback#',
       'launchkit://auth/callback#access_token=&token_type=bearer',
       'launchkit://auth/callback#error=access_denied',
+      // A token without the pending flow's nonce is not a sign-in the app started.
+      `launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer`,
+      `launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer&desktop_nonce=${'m'.repeat(43)}`,
+      `launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer&desktop_nonce=`,
     ]
     for (const link of incomplete) {
       const withServer = handlerWith('https://srv.example.com')
@@ -51,6 +57,23 @@ describe('deep links', () => {
       withoutServer.handle(link)
       expect(withoutServer.navigate, link).toHaveBeenCalledWith('app://launchkit/connect?sso=failed')
     }
+  })
+
+  it('refuses a sign-in with an expired, used or missing pending flow and stores nothing', () => {
+    for (const pending of [null]) {
+      const { handle, navigate } = handlerWith('https://srv.example.com', pending)
+      handle(SIGN_IN)
+      expect(navigate).toHaveBeenCalledTimes(1)
+      expect(navigate).toHaveBeenCalledWith('app://launchkit/login?sso=failed')
+    }
+  })
+
+  it('asks the pending flow once per distinct link', () => {
+    const { handle, consumeNonce } = handlerWith()
+    handle(SIGN_IN)
+    handle(SIGN_IN)
+    expect(consumeNonce).toHaveBeenCalledTimes(1)
+    expect(consumeNonce).toHaveBeenCalledWith(NONCE)
   })
 
   it('ignores links whose host and path are not auth/callback', () => {
@@ -73,7 +96,8 @@ describe('deep links', () => {
   })
 
   it('parses a complete link into a sign-in', () => {
-    expect(parseDeepLink(SIGN_IN)).toEqual({ kind: 'sign-in', token: TOKEN })
+    expect(parseDeepLink(SIGN_IN)).toEqual({ kind: 'sign-in', token: TOKEN, nonce: NONCE })
+    expect(parseDeepLink(`launchkit://auth/callback#access_token=${TOKEN}`)).toEqual({ kind: 'sign-in', token: TOKEN, nonce: null })
   })
 })
 

@@ -22,6 +22,7 @@ const LAUNCHKIT_MEMBERS = [
   'openExternal',
   'platform',
   'setServerUrl',
+  'startSso',
 ]
 
 test('window web preferences are locked down', async () => {

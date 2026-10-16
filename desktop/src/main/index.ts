@@ -11,6 +11,7 @@ import { trustedHandle } from './ipc'
 import { buildMenuTemplate, DOCS_URL, menuStrings } from './menu'
 import { denyAllPermissions, openExternalSafely } from './security'
 import { createServerConnection } from './server-connection'
+import { createSsoFlow } from './sso-flow'
 import { setupSingleInstance } from './single-instance'
 import { createUpdater } from './updater'
 import { createMainWindow } from './window'
@@ -63,6 +64,11 @@ function start() {
     })
 
     trustedHandle(ipcMain, IPC.openExternal, (_event, url: unknown) => openExternalSafely(url, (target) => shell.openExternal(target)))
+    const sso = createSsoFlow({
+      getServerUrl: () => store.getServerUrl(),
+      openExternal: (url) => openExternalSafely(url, (target) => shell.openExternal(target)),
+    })
+    trustedHandle(ipcMain, IPC.startSso, () => sso.start())
     denyAllPermissions(session.defaultSession)
     session.defaultSession.on(
       'will-download',
@@ -108,6 +114,7 @@ function start() {
       navigate: (url) => {
         void mainWindow?.loadURL(url).catch(() => undefined)
       },
+      consumeNonce: (nonce) => sso.consume(nonce),
       focus: () => {
         if (!mainWindow) return
         if (mainWindow.isMinimized()) mainWindow.restore()

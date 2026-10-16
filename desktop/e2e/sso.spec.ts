@@ -14,7 +14,8 @@ test.afterEach(async () => {
   await server.close()
 })
 
-const link = (token: string) => `launchkit://auth/callback#access_token=${token}&token_type=bearer`
+const link = (token: string, nonce?: string) =>
+  `launchkit://auth/callback#access_token=${token}&token_type=bearer${nonce === undefined ? '' : `&desktop_nonce=${nonce}`}`
 
 /** What macOS does when the system hands the app a launchkit:// URL. */
 async function openUrl(app: ElectronApplication, url: string) {
@@ -38,6 +39,21 @@ async function countLoads(app: ElectronApplication, fragment: string) {
   return () => app.evaluate(() => (globalThis as { __loads?: string[] }).__loads ?? [])
 }
 
+/** Clicks the SSO button with openExternal stubbed; returns the desktop_nonce the app put in the login URL. */
+async function startSso(app: ElectronApplication, page: Page): Promise<string> {
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = []
+    ;(globalThis as { __opened?: string[] }).__opened = opened
+    shell.openExternal = async (url: string) => {
+      opened.push(url)
+    }
+  })
+  await page.getByRole('button', { name: 'Continue with Pocket ID' }).click()
+  await expect.poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened?.length)).toBe(1)
+  const opened = await app.evaluate(() => (globalThis as { __opened?: string[] }).__opened as string[])
+  return new URL(opened[0]).searchParams.get('desktop_nonce') as string
+}
+
 async function expectSignedIn(page: Page) {
   await expect(page).toHaveURL('app://launchkit/')
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(server.token)
@@ -59,9 +75,11 @@ test('SSO button opens the system browser and keeps one window', async () => {
     }
   })
   await page.getByRole('button', { name: 'Continue with Pocket ID' }).click()
-  await expect.poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened)).toEqual([
-    `${server.url}/api/auth/oidc/login?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback`,
-  ])
+  await expect.poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened?.length)).toBe(1)
+  const opened = await app.evaluate(() => (globalThis as { __opened?: string[] }).__opened as string[])
+  expect(opened[0]).toMatch(
+    new RegExp(`^${server.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/api/auth/oidc/login\\?redirect_target=launchkit%3A%2F%2Fauth%2Fcallback&desktop_nonce=[A-Za-z0-9_-]{43}$`),
+  )
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
   expect(page.url()).toBe('app://launchkit/login')
 })
@@ -69,15 +87,17 @@ test('SSO button opens the system browser and keeps one window', async () => {
 test('an open-url deep link signs in and lands on / with users/me 200', async () => {
   const { app, page } = await launchApp({ serverUrl: server.url })
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()
-  await openUrl(app, link(server.token))
+  const nonce = await startSso(app, page)
+  await openUrl(app, link(server.token, nonce))
   await expectSignedIn(page)
   expect(server.requests.some((request) => request.path === '/api/users/me' && request.headers.authorization === `Bearer ${server.token}`)).toBe(true)
 })
 
 test('a second instance carrying the link signs in', async () => {
-  const { page, userDataDir } = await launchApp({ serverUrl: server.url })
+  const { app, page, userDataDir } = await launchApp({ serverUrl: server.url })
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()
-  const second = spawn(electronBinary(), [...launchArgs(userDataDir), link(server.token)], { stdio: 'ignore' })
+  const nonce = await startSso(app, page)
+  const second = spawn(electronBinary(), [...launchArgs(userDataDir), link(server.token, nonce)], { stdio: 'ignore' })
   const code = await new Promise<number | null>((resolve, reject) => {
     const timer = setTimeout(() => {
       second.kill()
@@ -106,8 +126,9 @@ test('the same deep link twice signs in once', async () => {
     }
   })
   const loads = await countLoads(app, '/auth/oidc/callback')
-  await openUrl(app, link(server.token))
-  await openUrl(app, link(server.token))
+  const nonce = await startSso(app, page)
+  await openUrl(app, link(server.token, nonce))
+  await openUrl(app, link(server.token, nonce))
   await expectSignedIn(page)
   await page.waitForTimeout(500)
   expect(await loads()).toHaveLength(1)
@@ -117,8 +138,20 @@ test('the same deep link twice signs in once', async () => {
 test('an incomplete deep link shows the message and stores no token', async () => {
   const { app, page } = await launchApp({ serverUrl: server.url })
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()
-  await openUrl(app, 'launchkit://auth/callback#error=access_denied')
+  // A flow the app did not start: a valid-looking token and nonce, nothing pending.
+  await openUrl(app, link(server.token, 'p'.repeat(43)))
   await expect(page).toHaveURL('app://launchkit/login?sso=failed')
+  await expect(page.getByRole('alert')).toHaveText('Sign-in did not complete')
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull()
+
+  // A flow the app started, answered with another nonce or without one.
+  await page.goto('app://launchkit/login')
+  const nonce = await startSso(app, page)
+  await openUrl(app, link(server.token, `${nonce.slice(1)}x`))
+  await expect(page).toHaveURL('app://launchkit/login?sso=failed')
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull()
+
+  await openUrl(app, 'launchkit://auth/callback#error=access_denied')
   await expect(page.getByRole('alert')).toHaveText('Sign-in did not complete')
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull()
 
