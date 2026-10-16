@@ -69,6 +69,11 @@ describe('app protocol static files', () => {
     }
   })
 
+  it('answers 500 instead of failing the request when the build is missing', async () => {
+    const handle = createAppHandler({ distDir: path.join(distDir, 'missing'), getServerUrl: () => null, fetchFn: fetch })
+    expect((await handle(new Request('app://launchkit/'))).status).toBe(500)
+  })
+
   it('answers 404 for a host other than launchkit', async () => {
     const { handle } = handler()
     expect((await handle(new Request('app://evil/index.html'))).status).toBe(404)

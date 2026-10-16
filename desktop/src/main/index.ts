@@ -25,7 +25,8 @@ function start() {
   void app.whenReady().then(() => {
     const store = createConfigStore(path.join(app.getPath('userData'), 'config.json'))
     const connection = createServerConnection({ store, fetchFn: (input, init) => net.fetch(String(input), init as RequestInit) })
-    const distDir = path.join(app.getAppPath(), '..', 'frontend', 'dist-desktop')
+    // out/main -> out -> desktop -> repository root. Packaged apps get their own path (S5).
+    const distDir = path.resolve(__dirname, '..', '..', '..', 'frontend', 'dist-desktop')
 
     protocol.handle(
       APP_SCHEME,

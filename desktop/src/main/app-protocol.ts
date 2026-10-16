@@ -86,6 +86,10 @@ export function createAppHandler(deps: Deps): (request: Request) => Promise<Resp
     const url = new URL(request.url)
     if (url.host !== APP_HOST) return notFound()
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return proxyApi(deps, request, url)
-    return serveStatic(deps.distDir, url.pathname)
+    try {
+      return await serveStatic(deps.distDir, url.pathname)
+    } catch {
+      return new Response('Internal error', { status: 500 })
+    }
   }
 }
