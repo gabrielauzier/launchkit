@@ -1,20 +1,21 @@
+import timezoneData from '../data/timezones.json' with { type: 'json' }
+
 import type { Database } from '../db/client.ts'
 import { getAppSetting } from './settings.ts'
 
-/** `is_valid_timezone`: an IANA name the runtime can load, spelled with its canonical capitals. */
+const NAMES = new Set<string>(timezoneData.names)
+
+/**
+ * `is_valid_timezone`: exactly one of the names the Python backend lists, case included.
+ * The list is generated from the pinned tzdata package (`backend/scripts/export_timezones.py`).
+ */
 export function isValidTimezone(name: string): boolean {
-  if (!/^[A-Z]/.test(name)) return false
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: name })
-    return true
-  } catch {
-    return false
-  }
+  return NAMES.has(name)
 }
 
 /** `timezone_names`: every zone a person can pick, sorted. */
 export function timezoneNames(): string[] {
-  return [...new Set([...Intl.supportedValuesOf('timeZone'), 'UTC'])].sort()
+  return [...timezoneData.names]
 }
 
 /** `environment_timezone`: `TZ`, else the host zone, else UTC. */

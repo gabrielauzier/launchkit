@@ -26,6 +26,9 @@ class ContractDriftJobTest(unittest.TestCase):
         # The comparison must run on the locked dependency set, like the backend tests.
         self.assertIn("uv sync --locked", block)
 
+    def test_job_checks_the_timezone_list_the_node_backend_uses(self):
+        self.assertIn("backend/scripts/export_timezones.py --check", job_block("contract-drift"))
+
 
 class NodeBackendJobsTest(unittest.TestCase):
     def test_backend_node_tests_job_lints_typechecks_and_tests_with_coverage(self):

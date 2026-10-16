@@ -260,6 +260,12 @@ jobs:
         working-directory: .
         run: backend/.venv/bin/python backend/scripts/export_openapi.py --check
 
+      # The Node backend validates timezones against this generated list (criterion 44).
+      - name: Check backend-node/src/data/timezones.json is current
+        if: steps.backend-changes.outputs.run_backend != 'false'
+        working-directory: .
+        run: backend/.venv/bin/python backend/scripts/export_timezones.py --check
+
   backend-node-tests:
     name: Backend Node Tests
     runs-on: ubuntu-latest

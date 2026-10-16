@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -25,6 +25,21 @@ export interface StackExit {
   output: string
 }
 
+/**
+ * Where the pinned `tzdata` package keeps its zones. The Python stack reads zones from here
+ * (PYTHONTZPATH) instead of the host's /usr/share/zoneinfo, so its list of timezone names does not
+ * depend on the machine the suite runs on (C44).
+ */
+let tzdataZoneinfo: string | undefined
+function pythonTzPath(): string {
+  tzdataZoneinfo ??= execFileSync(
+    process.env.CONTRACT_PYTHON_BIN ?? resolve(REPO_ROOT, '.venv/bin/python'),
+    ['-c', 'import os, tzdata; print(os.path.join(os.path.dirname(tzdata.__file__), "zoneinfo"))'],
+    { encoding: 'utf8' },
+  ).trim()
+  return tzdataZoneinfo
+}
+
 /** Environment every stack starts with; a case overrides single keys. */
 export function baseEnv(stack: Stack): Record<string, string> {
   const env: Record<string, string> = {
@@ -36,6 +51,7 @@ export function baseEnv(stack: Stack): Record<string, string> {
     STORAGE_LOCAL_PATH: mkdtempSync(join(tmpdir(), 'launchkit-contract-files-')),
     DATABASE_URL: stack === 'python' ? asyncpgUrl() : databaseUrl(),
   }
+  if (stack === 'python') env.PYTHONTZPATH = pythonTzPath()
   return env
 }
 
