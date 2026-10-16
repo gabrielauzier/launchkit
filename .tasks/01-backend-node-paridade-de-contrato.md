@@ -10,7 +10,7 @@ O backend do launchkit só existe em Python (FastAPI). Quem quer usar o template
 
 Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as mesmas 61 rotas do Python com o mesmo contrato HTTP, sobre o mesmo schema de banco, e uma suíte de contrato (`contracts/`) que roda contra qualquer uma das duas stacks. O frontend não muda. Escolher a stack em Compose, Helm e release é a task 2; o desktop é das tasks 3 e 4.
 
-43 critérios em 7 slices · 6 portas de mão única · 0 abertas, 0 bloqueiam
+44 critérios em 7 slices · 6 portas de mão única · 0 abertas, 0 bloqueiam
 
 ## Criteria
 
@@ -76,7 +76,8 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 40. Sempre, nenhuma linha de log do Node durante a suíte de contrato contém a senha, o `access_token`, o `temp_token` ou o `SECRET_KEY` usados nos casos.
 41. Quando um PR altera só `backend-node/`, então `.github/ci/changes.py` marca `run_backend_node=true` e `run_backend`, `run_frontend`, `run_helm` como `false`; quando altera `contracts/`, marca `run_backend_node` e `run_backend` como `true`; um caminho desconhecido continua rodando tudo; `test_changes.py` cobre os três casos.
 42. Se o Redis não responde, então `POST /api/auth/login` e as demais rotas com rate limit retornam 500, como o Python.
-43. Quando a suíte de contrato roda, então cada operação sem critério próprio (`GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso com status e corpo, e passa nas duas stacks.
+43. Quando a suíte de contrato roda, então cada operação sem critério próprio (`POST /api/auth/logout`, `GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso com status e corpo, e passa nas duas stacks.
+44. Quando `PATCH /api/workspaces/{id}` ou `PATCH /api/admin/settings/timezone` recebe um fuso com caixa errada (`America/sao_paulo`), então 400 `{"detail": "Invalid IANA timezone"}` nas duas stacks; um alias aceito pelo Python (`US/Pacific`) responde 200 nas duas; e `GET /api/timezones` lista os mesmos nomes nas duas stacks.
 
 ## Out of scope
 
@@ -136,7 +137,7 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 | Schema do Node = Alembic `001`, com baseline | 6 tabelas (`app_settings`, `users`, `user_passkeys`, `workspaces`, `workspace_members`, `files`) em Drizzle; se `alembic_version` existe com `version_num = '001'`, marca a migration inicial como aplicada sem DDL; senão roda as migrations | Prisma: depende de engine binário e não roda sobre PGlite (task 4). Node sem migrations próprias: um projeto só-Node ficaria dependente de Python. |
 | Formatos compartilhados entre stacks | JWT HS256 com `SECRET_KEY`, `sub` = UUID do usuário, `aud` = `fastapi-users:auth`; senha gravada em argon2, lida em argon2 e bcrypt; Redis: `2fa_temp:<token>` `{"user_id","available_methods"}` TTL 300, `oidc_state:<state>` `{"nonce","code_verifier"}`, challenges `<prefixo>:<challenge_id>` | Formatos próprios do Node: impede trocar de stack com sessões e passkeys vivas, e a task 4 (OIDC) assume o payload único. |
 | Portas para infraestrutura | `KeyValueStore`, `JobQueue`, `StorageProvider`, cada uma com implementação Redis/BullMQ (ou disco) e em memória; padrão que o Python não tem | Usar `ioredis` e BullMQ direto: BullMQ exige Redis e o backend não poderia rodar dentro do Electron (task 4). |
-| Dependências do backend Node | Fastify 5, `fastify-type-provider-zod` + Zod 4, `@fastify/swagger`, `@fastify/multipart`, Drizzle ORM + drizzle-kit, `ioredis`, BullMQ, `jose`, `@node-rs/argon2`, `bcryptjs`, `otpauth`, `@simplewebauthn/server`, `openid-client`, Vitest | TypeBox no lugar de Zod: sem reuso de schemas com o frontend, que já usa Zod 4. |
+| Dependências do backend Node | Fastify 5, `fastify-type-provider-zod` + Zod 4, `@fastify/swagger`, `@fastify/multipart`, Drizzle ORM + drizzle-kit, `ioredis`, BullMQ, `jose`, `@node-rs/argon2`, `bcryptjs`, `otpauth`, `@simplewebauthn/server`, `jose` com `fetch` para o cliente OIDC (no lugar de `openid-client`, decisão do usuário: espelha o `httpx` do Python), Vitest | TypeBox no lugar de Zod: sem reuso de schemas com o frontend, que já usa Zod 4. |
 | Caminhos | `backend-node/`, `contracts/openapi.json`, `contracts/tests/` | Renomear `backend/` agora: quebra caminhos de CI, Compose, Helm, `install.sh` e `deploy/public`. |
 | Formato de erro | `{"detail": <string>}`, `{"detail": {"code","message"}}` e 422 `{"detail": [{"loc","msg","type"}]}` | Formato nativo do Fastify (`statusCode`, `error`, `message`): `frontend/src/lib/api-errors.ts` lê `detail`. |
 
