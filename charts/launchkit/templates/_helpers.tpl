@@ -71,6 +71,7 @@ http://{{ .Values.global.domain }}
 {{- end -}}
 {{- end -}}
 
+{{/* select-stack:begin multi */}}
 {{/*
 Backend stack: python (default) or node. Anything else fails the render.
 */}}
@@ -92,3 +93,4 @@ Image of the backend stack in use (API, migration job, worker and scheduler shar
 {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
 {{- end -}}
 {{- end -}}
+{{/* select-stack:end */}}

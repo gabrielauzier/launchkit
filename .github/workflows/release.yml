@@ -13,6 +13,7 @@ permissions:
   packages: write
 
 jobs:
+  # select-stack:begin python
   build-backend:
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +53,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  # select-stack:end
 
+  # select-stack:begin node
   build-backend-node:
     runs-on: ubuntu-latest
     steps:
@@ -92,6 +95,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  # select-stack:end
 
   build-frontend:
     runs-on: ubuntu-latest
@@ -136,7 +140,15 @@ jobs:
           cache-to: type=gha,mode=max
 
   build-helm:
+    # select-stack:begin multi
     needs: [build-backend, build-backend-node, build-frontend]
+    # select-stack:end
+    # select-stack:begin python
+    #~needs: [build-backend, build-frontend]
+    # select-stack:end
+    # select-stack:begin node
+    #~needs: [build-backend-node, build-frontend]
+    # select-stack:end
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

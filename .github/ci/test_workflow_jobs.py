@@ -19,6 +19,7 @@ def job_block(name: str) -> str:
     return match.group(1)
 
 
+# select-stack:begin python
 class ContractDriftJobTest(unittest.TestCase):
     def test_job_runs_the_export_check(self):
         block = job_block("contract-drift")
@@ -30,6 +31,10 @@ class ContractDriftJobTest(unittest.TestCase):
         self.assertIn("backend/scripts/export_timezones.py --check", job_block("contract-drift"))
 
 
+# select-stack:end
+
+
+# select-stack:begin node
 class NodeBackendJobsTest(unittest.TestCase):
     def test_backend_node_tests_job_lints_typechecks_and_tests_with_coverage(self):
         block = job_block("backend-node-tests")
@@ -41,6 +46,12 @@ class NodeBackendJobsTest(unittest.TestCase):
         self.assertIn("image: redis:8-alpine", block)
         self.assertIn("REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0", block)
 
+
+# select-stack:end
+
+
+# select-stack:begin multi
+class BothStacksJobsTest(unittest.TestCase):
     def test_contract_job_runs_the_suite_against_both_stacks(self):
         block = job_block("contract")
         self.assertRegex(block, r"stack:\s*\[python, node\]")
@@ -50,8 +61,10 @@ class NodeBackendJobsTest(unittest.TestCase):
     def test_schema_diff_job_runs_the_script_with_its_self_test(self):
         block = job_block("schema-diff")
         self.assertIn("backend-node/scripts/schema-diff.sh --self-test", block)
+# select-stack:end
 
 
+# select-stack:begin multi
 class StackJobsTest(unittest.TestCase):
     def test_stack_switch_runs_cases_1_2_4_17_18(self):
         block = job_block("stack-switch")
@@ -60,6 +73,13 @@ class StackJobsTest(unittest.TestCase):
 
     def test_stack_switch_runs_the_preflight(self):
         self.assertIn("scripts/stack/preflight.sh", job_block("stack-switch"))
+
+    def test_select_stack_job_runs_case_14_for_both_stacks(self):
+        block = job_block("select-stack")
+        self.assertRegex(block, r"stack:\s*\[python, node\]")
+        self.assertIn("ONLY_STACK: ${{ matrix.stack }}", block)
+        self.assertIn("node --test --test-name-pattern='^C14 ' scripts/stack/select-stack.test.mjs", block)
+        self.assertIn("steps.changes.outputs.run_select_stack", block)
 
 
 class ChangesWiringTest(unittest.TestCase):
@@ -90,10 +110,12 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
 
     def test_stack_jobs_read_their_outputs(self):
-        for name, output in (("stack-switch", "run_stack_switch"),):
+        for name, output in (("stack-switch", "run_stack_switch"), ("select-stack", "run_select_stack")):
             with self.subTest(job=name):
                 self.assertIn(f"steps.changes.outputs.{output}", job_block(name))
                 self.assertIn("python3 .github/ci/changes.py", job_block(name))
+# select-stack:end
+
 
 if __name__ == "__main__":
     unittest.main()

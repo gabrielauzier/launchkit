@@ -53,11 +53,17 @@ The same applies to issues. An issue produced by pointing a model at the reposit
 
 1. Create a branch from `main`: `git checkout -b feature/your-feature`
 2. Make your changes
+<!-- select-stack:begin python -->
 3. Run backend tests: `cd backend && uv sync --all-extras && uv run pytest` (Python 3.11+)
+<!-- select-stack:end -->
+<!-- select-stack:begin node
+3. Run backend tests: `cd backend-node && npm ci && npm test` (Node 22+)
+select-stack:end -->
 4. Run frontend checks: `cd frontend && npm run lint && npm test`
 5. Commit with a clear message (see below)
 6. Push your branch and open a Pull Request
 
+<!-- select-stack:begin python -->
 Optional but recommended, so you catch lint and type errors before CI does:
 
 ```bash
@@ -72,6 +78,7 @@ local and CI stay in sync.
 
 [prek](https://github.com/j178/prek) is a drop-in replacement for pre-commit:
 same `.pre-commit-config.yaml`, but a single binary with no Python bootstrap.
+<!-- select-stack:end -->
 
 ### Frontend tests
 
@@ -109,6 +116,7 @@ Use clear, descriptive commit messages:
 ## Running Tests
 
 ```bash
+# select-stack:begin python
 # Backend tests (run from backend/, needs Python 3.11+; same as CI)
 cd backend
 uv sync --all-extras   # first time only — builds .venv from uv.lock, same versions as CI
@@ -133,6 +141,16 @@ ty check .
 # After adding a migration: check the revision chain is still a single line
 python3 scripts/check_migration_chain.py
 
+# select-stack:end
+# select-stack:begin node
+# Backend tests (run from backend-node/, needs Node 22+; same as CI)
+cd backend-node
+npm ci
+npm test
+npm run lint
+npm run typecheck
+
+# select-stack:end
 # Frontend lint
 cd frontend && npm run lint
 
@@ -140,6 +158,7 @@ cd frontend && npm run lint
 cd frontend && npm run build
 ```
 
+<!-- select-stack:begin python -->
 ### Adding a migration
 
 Number the file after the current head and chain it there, so
@@ -155,6 +174,7 @@ taken and you have to renumber. CI catches this: the Migration Chain job runs
 against your branch merged with `main`, so a clash fails there rather than on
 someone's `alembic upgrade head` after both are merged.
 
+<!-- select-stack:end -->
 ## Pull Request Guidelines
 
 - Keep PRs focused — one feature or fix per PR
