@@ -227,6 +227,17 @@
     },
     "sso": {
       "incomplete": "Sign-in did not complete"
+    },
+    "mode": {
+      "title": "Welcome to launchkit",
+      "description": "Choose where your data lives.",
+      "connect": "Connect to a server",
+      "local": "Use this computer",
+      "starting": "Starting the local backend…",
+      "failedTitle": "Could not start the local backend",
+      "failedDescription": "Your data was not changed. Try again, or open the logs to see what went wrong.",
+      "retry": "Try again",
+      "openLogs": "Open logs"
     }
   },
   "files": {

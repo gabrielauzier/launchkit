@@ -227,6 +227,17 @@
     },
     "sso": {
       "incomplete": "O login não foi concluído"
+    },
+    "mode": {
+      "title": "Bem-vindo ao launchkit",
+      "description": "Escolha onde ficam os seus dados.",
+      "connect": "Conectar a um servidor",
+      "local": "Usar neste computador",
+      "starting": "Iniciando o backend local…",
+      "failedTitle": "Não foi possível iniciar o backend local",
+      "failedDescription": "Seus dados não foram alterados. Tente de novo ou abra os logs para ver o que houve.",
+      "retry": "Tentar de novo",
+      "openLogs": "Abrir logs"
     }
   },
   "files": {

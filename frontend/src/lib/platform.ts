@@ -7,7 +7,7 @@ export type SetServerUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'invalid-url' | 'insecure' | 'unreachable' }
 
-/** Mirrors desktop/src/shared/ipc.ts: exactly these nine members. */
+/** Mirrors desktop/src/shared/ipc.ts: exactly these twelve members. */
 export interface LaunchkitApi {
   isDesktop: true
   platform: string
@@ -18,6 +18,12 @@ export interface LaunchkitApi {
   onUpdateAvailable(callback: (info: { version: string }) => void): () => void
   installUpdate(): Promise<void>
   startSso(): Promise<void>
+  /** `null` while the choice between a server and this computer is open. */
+  getMode(): Promise<'remote' | 'local' | null>
+  /** Starts (or joins) the local backend; resolves once it listens or has failed. */
+  startLocal(): Promise<{ ok: boolean }>
+  /** Opens the folder with the local backend's logs. */
+  openLogs(): Promise<void>
 }
 
 declare global {

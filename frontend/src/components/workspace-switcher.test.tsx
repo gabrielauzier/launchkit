@@ -26,6 +26,9 @@ function desktopApi(): LaunchkitApi {
     onUpdateAvailable: vi.fn(() => () => {}),
     installUpdate: vi.fn(),
     startSso: vi.fn(async () => {}),
+    getMode: vi.fn(async () => 'remote' as const),
+    startLocal: vi.fn(async () => ({ ok: true as const })),
+    openLogs: vi.fn(async () => {}),
   }
 }
 

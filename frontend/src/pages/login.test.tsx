@@ -244,6 +244,9 @@ describe('LoginPage', () => {
       onUpdateAvailable: vi.fn(() => () => {}),
       installUpdate: vi.fn(),
       startSso: vi.fn(async () => {}),
+      getMode: vi.fn(async () => 'remote' as const),
+      startLocal: vi.fn(async () => ({ ok: true as const })),
+      openLogs: vi.fn(async () => {}),
     }
     Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
     try {
@@ -295,6 +298,9 @@ describe('LoginPage SSO', () => {
       onUpdateAvailable: vi.fn(() => () => {}),
       installUpdate: vi.fn(),
       startSso: vi.fn(async () => {}),
+      getMode: vi.fn(async () => 'remote' as const),
+      startLocal: vi.fn(async () => ({ ok: true as const })),
+      openLogs: vi.fn(async () => {}),
     }
     Object.defineProperty(window, 'launchkit', { value: desktopApi, configurable: true })
     return desktopApi
