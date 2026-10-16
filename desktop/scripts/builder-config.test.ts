@@ -32,4 +32,8 @@ describe('electron-builder config', () => {
     expect(config.mac.hardenedRuntime).toBe(true)
     expect(JSON.stringify(config)).not.toMatch(/BEGIN [A-Z ]*PRIVATE KEY/)
   })
+
+  it('declares the launchkit protocol', () => {
+    expect(config.protocols).toContainEqual({ name: 'launchkit', schemes: ['launchkit'] })
+  })
 })

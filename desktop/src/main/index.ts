@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shel
 import { autoUpdater } from 'electron-updater'
 import { APP_ORIGIN, APP_SCHEME, createAppHandler } from './app-protocol'
 import { createConfigStore } from './config-store'
+import { createDeepLinkHandler, setupDeepLinks } from './deep-link'
 import { createDownloadHandler } from './downloads'
 import { trustedHandle } from './ipc'
 import { buildMenuTemplate, DOCS_URL, menuStrings } from './menu'
@@ -25,11 +26,20 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 
+// Deep links can arrive before the window exists (macOS open-url, a cold start
+// from a link): they wait here until the handler is ready.
+const pendingDeepLinks: string[] = []
+let deliverDeepLink: (link: string) => void = (link) => {
+  pendingDeepLinks.push(link)
+}
+
 function start() {
   if (!setupSingleInstance(app, () => mainWindow)) {
     app.quit()
     return
   }
+
+  setupDeepLinks(app, (link) => deliverDeepLink(link), process.argv)
 
   void app.whenReady().then(() => {
     const store = createConfigStore(path.join(app.getPath('userData'), 'config.json'))
@@ -92,6 +102,21 @@ function start() {
       if (pending) mainWindow?.webContents.send(IPC.updateAvailable, pending)
     })
     updater.start()
+
+    const handleDeepLink = createDeepLinkHandler({
+      getServerUrl: () => store.getServerUrl(),
+      navigate: (url) => {
+        void mainWindow?.loadURL(url).catch(() => undefined)
+      },
+      focus: () => {
+        if (!mainWindow) return
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+      },
+    })
+    deliverDeepLink = handleDeepLink
+    for (const link of pendingDeepLinks.splice(0)) handleDeepLink(link)
   })
 
   app.on('window-all-closed', () => {
