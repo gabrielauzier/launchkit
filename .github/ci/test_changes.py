@@ -66,8 +66,11 @@ class CIChangesTest(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", str(SELECTOR)], cwd=self.repo,
                                 env=env, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
+        # The desktop app bundles the frontend: unless a case names run_desktop, it follows run_frontend.
+        desktop = expected[3] if len(expected) > 3 else expected[1]
         self.assertEqual(output_file.read_text(),
-                         f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n")
+                         f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n"
+                         f"run_desktop={desktop}\n")
 
     def test_component_docs_and_shared_paths(self):
         cases = [
@@ -83,6 +86,22 @@ class CIChangesTest(unittest.TestCase):
                      ".github/ci/test_changes.py", "charts/other/Chart.yaml", "docker-compose.yml", "mise.toml",
                      "docs/tool.py", "unexpected.md", "new-package/code.py"):
             cases.append(({name: "shared"}, ("true", "true", "true")))
+        for files, expected in cases:
+            with self.subTest(files=files):
+                self.merge(files)
+                self.select(expected)
+
+    def test_run_desktop_selection(self):
+        cases = [
+            ({"desktop/src/main/index.ts": "code"}, ("false", "false", "false", "true")),
+            ({"desktop/package.json": "{}"}, ("false", "false", "false", "true")),
+            ({"frontend/new.ts": "code"}, ("false", "true", "false", "true")),
+            ({"backend/new.py": "code"}, ("true", "false", "false", "false")),
+            ({"charts/launchkit/new.yaml": "chart"}, ("false", "false", "true", "false")),
+            ({"docs/new.md": "docs"}, ("false", "false", "false", "false")),
+            ({"backend/new.py": "code", "desktop/new.ts": "code"}, ("true", "false", "false", "true")),
+            ({".github/workflows/desktop-release.yml": "shared"}, ("true", "true", "true", "true")),
+        ]
         for files, expected in cases:
             with self.subTest(files=files):
                 self.merge(files)
