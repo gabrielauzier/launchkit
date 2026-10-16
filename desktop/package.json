@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:e2e": "npm run build:all && playwright test",
+    "check:web-bundle": "node scripts/check-web-bundle.mjs --build",
     "package:unsigned": "npm run build:all && electron-builder -c.mac.identity=-"
   },
   "dependencies": {

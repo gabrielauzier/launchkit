@@ -1,12 +1,28 @@
 // Fails when a built bundle reaches for the desktop bridge: the web build may
 // only ask `window.launchkit?.isDesktop` (always undefined in a browser).
 // Usage: node scripts/check-web-bundle.mjs <build output directory>
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+//        node scripts/check-web-bundle.mjs --build   (builds the web app in a temporary directory first)
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.argv[2]
+let root = process.argv[2]
+let builtIn = null
+if (root === '--build') {
+  const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend')
+  builtIn = mkdtempSync(path.join(tmpdir(), 'launchkit-web-bundle-'))
+  const build = spawnSync('npx', ['vite', 'build', '--outDir', builtIn, '--emptyOutDir'], { cwd: frontend, stdio: 'inherit' })
+  if (build.status !== 0) {
+    rmSync(builtIn, { recursive: true, force: true })
+    console.error('the web build failed')
+    process.exit(2)
+  }
+  root = builtIn
+}
 if (!root) {
-  console.error('usage: check-web-bundle.mjs <directory>')
+  console.error('usage: check-web-bundle.mjs <directory> | --build')
   process.exit(2)
 }
 
@@ -23,10 +39,13 @@ const violations = []
 for (const file of scripts(root)) {
   files += 1
   const text = readFileSync(file, 'utf8')
-  for (const match of text.matchAll(/window\.launchkit(?!\?\.isDesktop)/g)) {
+  // window.launchkit, window['launchkit'], globalThis.launchkit, ... unless it is only asked for ?.isDesktop.
+  for (const match of text.matchAll(/\b(?:window|globalThis)(?:\.launchkit|\[\s*['"`]launchkit['"`]\s*\])(?!\?\.isDesktop)/g)) {
     violations.push(`${file}: ${text.slice(Math.max(0, match.index - 30), match.index + 60).replace(/\s+/g, ' ')}`)
   }
 }
+
+if (builtIn) rmSync(builtIn, { recursive: true, force: true })
 
 if (files === 0) {
   console.error(`no scripts found in ${root}`)

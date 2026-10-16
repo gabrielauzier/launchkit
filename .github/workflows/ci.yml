@@ -263,6 +263,11 @@ jobs:
         if: steps.desktop-changes.outputs.run_desktop != 'false'
         run: npm test
 
+      # The web build must not reach for the desktop bridge (window.launchkit).
+      - name: Check the web bundle
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run check:web-bundle
+
   desktop-e2e:
     name: Desktop E2E (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

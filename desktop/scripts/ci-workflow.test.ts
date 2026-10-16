@@ -37,6 +37,17 @@ describe('ci workflow', () => {
     expect(JSON.stringify(job)).not.toContain('secrets.')
   })
 
+  it('desktop-checks guards the web bundle against window.launchkit', () => {
+    const job = ci.jobs['desktop-checks']
+    const runs = commands(job)
+    const guard = job.steps.findIndex((step) => step.run === 'npm run check:web-bundle')
+    expect(guard, 'a check:web-bundle step').toBeGreaterThan(-1)
+    expect(job.steps[guard].if).toContain('run_desktop')
+    // It builds the web app, so it comes after the frontend dependencies are installed.
+    expect(guard).toBeGreaterThan(job.steps.findIndex((step) => step.run?.includes('npm ci --prefix ../frontend')))
+    expect(runs.length).toBeGreaterThan(0)
+  })
+
   it('desktop-e2e matrix covers the three systems', () => {
     const job = ci.jobs['desktop-e2e']
     expect(job, 'desktop-e2e job').toBeDefined()
