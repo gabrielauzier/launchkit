@@ -266,6 +266,18 @@ jobs:
     defaults:
       run:
         working-directory: backend-node
+    # Redis is the only service: the integration tests run on PGlite, and the BullMQ worker (C35)
+    # and RedisStore tests need a real Redis.
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v7
@@ -301,10 +313,12 @@ jobs:
         if: steps.changes.outputs.run_backend_node != 'false'
         run: npm run typecheck
 
-      # No REDIS_URL and no database service: the integration tests run on PGlite and the
-      # in-memory KeyValueStore.
+      # No database service: the integration tests run on PGlite. REDIS_URL turns on the tests
+      # that need a real Redis (RedisStore, BullMQ worker); without it they are not collected.
       - name: Run tests with coverage
         if: steps.changes.outputs.run_backend_node != 'false'
+        env:
+          REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
         run: npm test -- --coverage
 
   contract:

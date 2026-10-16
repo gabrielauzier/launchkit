@@ -199,6 +199,7 @@ Proof: `contracts/tests/files.test.ts` `C34 download returns the stored type and
 **C35** - Worker Node e Redis: o job `ping` retorna `"pong"`; o scheduler registra `report-user-count-hourly` a cada 3600 s e, a cada execução, loga `There are <N> users`
 Proof: `backend-node/test/worker.test.ts` `C35 ping returns pong` (BullMQ sobre o Redis de teste)
 Proof: `backend-node/test/worker.test.ts` `C35 the scheduler registers report-user-count-hourly every 3600 s`, `C35 each run logs There are <N> users`
+CI: o job `backend-node-tests` tem um service container `redis:8-alpine` e passa `REDIS_URL` ao `npm test -- --coverage`; sem `REDIS_URL` os três casos não são coletados (`describe.runIf`), então o proof de C35 exige Redis real: local, `REDIS_URL=redis://127.0.0.1:<porta do t01-redis>/0 npx vitest run test/worker.test.ts`.
 
 **C36** - `npm run cli -- create-user <email> <senha>` cria o usuário, o workspace pessoal e imprime `User created successfully: <email>`; `create-admin`: `Admin created successfully: <email>` e `is_superuser` verdadeiro; argumentos fora de `create-user|create-admin <email> <senha>`: uso e código 1
 Proof: `backend-node/test/cli.test.ts` `C36 create-user prints the success line and creates the personal workspace`, `C36 create-admin sets is_superuser`, `C36 bad arguments print usage and exit 1`

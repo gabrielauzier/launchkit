@@ -33,6 +33,11 @@ class NodeBackendJobsTest(unittest.TestCase):
         for command in ("npm ci", "npm run lint", "npm run typecheck", "npm test -- --coverage"):
             self.assertIn(command, block)
 
+    def test_backend_node_tests_job_has_a_redis_service_and_passes_redis_url(self):
+        block = job_block("backend-node-tests")
+        self.assertIn("image: redis:8-alpine", block)
+        self.assertIn("REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0", block)
+
     def test_contract_job_runs_the_suite_against_both_stacks(self):
         block = job_block("contract")
         self.assertRegex(block, r"stack:\s*\[python, node\]")
