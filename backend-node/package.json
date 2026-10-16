@@ -14,7 +14,8 @@
     "cli": "tsx src/cli.ts",
     "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",
@@ -36,6 +37,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "^5.0.5",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10.12.0",
     "tsx": "^4.23.15",

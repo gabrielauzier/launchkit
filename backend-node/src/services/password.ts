@@ -30,12 +30,7 @@ export interface PasswordCheck {
  */
 export async function verifyAndUpdate(password: string, stored: string): Promise<PasswordCheck> {
   if (stored.startsWith('$argon2')) {
-    let valid = false
-    try {
-      valid = await argon2Verify(stored, password)
-    } catch {
-      valid = false
-    }
+    const valid = await argon2Verify(stored, password).catch(() => false)
     return { valid, updatedHash: valid && argon2NeedsRehash(stored) ? await hashPassword(password) : null }
   }
   if (/^\$2[aby]\$/.test(stored)) {

@@ -43,7 +43,7 @@ export function authRoutes(ctx: AppContext) {
     // The Python login takes an OAuth2 password form only: any other body is "missing" fields.
     const formOnly = async (request: { headers: Record<string, unknown>; body: unknown }) => {
       const type = String(request.headers['content-type'] ?? '')
-      if (!type.startsWith('application/x-www-form-urlencoded')) request.body = undefined
+      if (!type.startsWith('application/x-www-form-urlencoded')) request.body = {}
     }
 
     typed.post(
