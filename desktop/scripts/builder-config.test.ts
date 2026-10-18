@@ -28,6 +28,18 @@ describe('electron-builder config', () => {
     expect(config.extraResources).toContainEqual({ from: '../frontend/dist-desktop', to: 'frontend' })
   })
 
+  it('ships the bundled local backend', () => {
+    const resources = config.extraResources as Array<{ from: string; to: string }>
+    expect(resources).toContainEqual({ from: 'out/backend', to: 'backend' })
+    expect(resources).toContainEqual({ from: '../backend-node/drizzle', to: 'backend/drizzle' })
+    expect(resources).toContainEqual({ from: 'node_modules/@electric-sql/pglite', to: 'backend/node_modules/@electric-sql/pglite' })
+    expect(resources).toContainEqual({ from: 'node_modules/@node-rs', to: 'backend/node_modules/@node-rs' })
+    // The backend's entry exists after the build and the two externals are runtime dependencies of the app.
+    const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')) as { dependencies: Record<string, string>; scripts: Record<string, string> }
+    expect(pkg.scripts['build:all']).toContain('build:backend')
+    expect(Object.keys(pkg.dependencies)).toEqual(expect.arrayContaining(['@electric-sql/pglite', '@node-rs/argon2']))
+  })
+
   it('reads signing from the environment instead of embedding it', () => {
     expect(config.mac.hardenedRuntime).toBe(true)
     expect(JSON.stringify(config)).not.toMatch(/BEGIN [A-Z ]*PRIVATE KEY/)
