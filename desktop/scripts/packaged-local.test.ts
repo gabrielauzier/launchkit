@@ -65,17 +65,19 @@ describe('packaged local backend', () => {
     dirs.push(userData)
     writeFileSync(path.join(userData, 'config.json'), JSON.stringify({ mode: 'local' }))
     const debugPort = 9300 + Math.floor(Math.random() * 500)
+    // --use-mock-keychain: the cookie-encryption fuse makes a freshly signed app ask the user's Keychain for
+    // its key, a prompt nobody answers in a test (and one a test must not trigger).
     // A PATH with the system tools only: if the app needed `node` it would not find one.
     const systemPath = process.platform === 'win32' ? (process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32') : '') : '/usr/bin:/bin'
     const child = spawn(
       executable,
-      [`--user-data-dir=${userData}`, `--remote-debugging-port=${debugPort}`, ...(process.env.CI && process.platform === 'linux' ? ['--no-sandbox'] : [])],
+      [`--user-data-dir=${userData}`, `--remote-debugging-port=${debugPort}`, '--use-mock-keychain', ...(process.env.CI && process.platform === 'linux' ? ['--no-sandbox'] : [])],
       { env: { ...process.env, PATH: systemPath }, stdio: 'ignore' },
     )
     children.push(child)
 
     // The renderer's own origin answers /api/setup/status only once the backend listens.
-    const deadline = Date.now() + 150_000
+    const deadline = Date.now() + 90_000
     let url = ''
     let status = ''
     while (Date.now() < deadline && !(status && url === 'app://launchkit/setup')) {
@@ -92,7 +94,7 @@ describe('packaged local backend', () => {
     }
     expect(url).toBe('app://launchkit/setup')
     expect(JSON.parse(status)).toEqual({ has_users: false })
-  }, 180_000)
+  }, 120_000)
 })
 
 /** One Runtime.evaluate over the DevTools protocol (Node's own WebSocket client). */
