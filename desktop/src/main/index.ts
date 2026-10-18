@@ -4,18 +4,19 @@ import path from 'node:path'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell, utilityProcess } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { APP_SCHEME, createAppHandler } from './app-protocol'
+import { APP_ORIGIN, APP_SCHEME, createAppHandler } from './app-protocol'
 import { createConfigStore } from './config-store'
 import { createDeepLinkHandler, setupDeepLinks } from './deep-link'
 import { createDownloadHandler } from './downloads'
 import { type ChildLike, createLocalBackend } from './local-backend'
 import { trustedHandle } from './ipc'
-import { buildMenuTemplate, DOCS_URL, menuStrings } from './menu'
+import { buildMenuTemplate, DOCS_URL, menuStrings, transferStrings } from './menu'
 import { denyAllPermissions, openExternalSafely } from './security'
 import { createServerConnection } from './server-connection'
 import { createSsoFlow } from './sso-flow'
 import { setupSingleInstance } from './single-instance'
 import { createSwitchServer } from './switch-server'
+import { createTransfer } from './transfer'
 import { createUpdater } from './updater'
 import { createMainWindow } from './window'
 import { IPC } from '../shared/ipc'
@@ -59,6 +60,7 @@ function start() {
         ? path.join(process.resourcesPath, 'backend', 'drizzle')
         : path.resolve(__dirname, '..', '..', '..', 'backend-node', 'drizzle'),
       })
+    let exporting = false
     let localStart: Promise<{ ok: boolean }> | null = null
     // One start at a time; a failed start can be tried again.
     const startLocal = () => {
@@ -66,6 +68,7 @@ function start() {
         .start()
         .then(() => {
           store.setMode('local')
+          installMenu()
           return { ok: true }
         })
         .catch((error: unknown) => {
@@ -78,7 +81,7 @@ function start() {
     }
     const stopLocal = () => {
       localStart = null
-      return localBackend.stop()
+      return localBackend.stop().finally(() => installMenu())
     }
     // Packaged: electron-builder copies frontend/dist-desktop to resources/frontend.
     // Unpackaged: out/main -> out -> desktop -> repository root.
@@ -92,6 +95,7 @@ function start() {
         distDir,
         // In local mode /api goes to the local backend, with the session token only this process knows.
         getServerUrl: () => (store.getMode() === 'local' ? (localBackend.info()?.url ?? null) : store.getServerUrl()),
+        isWriteBlocked: () => exporting,
         getExtraHeaders: (): Record<string, string> => {
           const local = store.getMode() === 'local' ? localBackend.info() : null
           return local ? { 'x-launchkit-local-token': local.token } : {}
@@ -109,6 +113,7 @@ function start() {
         if (result.ok) {
           store.setMode('remote')
           await stopLocal()
+          installMenu()
         }
         return result
       })
@@ -162,16 +167,52 @@ function start() {
       void stopLocal().finally(() => app.quit())
     })
 
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        buildMenuTemplate({
-          isMac: process.platform === 'darwin',
-          strings: menuStrings(app.getLocale()),
-          onSwitchServer: () => void switchServer(),
-          onOpenDocs: () => void shell.openExternal(DOCS_URL),
-        }),
-      ),
-    )
+    const transfer = createTransfer({
+      strings: transferStrings(app.getLocale()),
+      userData,
+      appVersion: app.getVersion(),
+      backend: localBackend,
+      chooseSavePath: async (defaultPath) => {
+        const options = { defaultPath, filters: [{ name: 'launchkit export', extensions: ['zip'] }] }
+        const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options)
+        return result.canceled || !result.filePath ? null : result.filePath
+      },
+      chooseOpenPath: async () => {
+        const options = { properties: ['openFile' as const], filters: [{ name: 'launchkit export', extensions: ['zip'] }] }
+        const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options)
+        return result.canceled || !result.filePaths[0] ? null : result.filePaths[0]
+      },
+      message: async ({ kind, text, confirm }) => {
+        const options = { type: kind, message: text, buttons: confirm ? [confirm.action, confirm.cancel] : ['OK'], defaultId: 0, cancelId: confirm ? 1 : 0 }
+        const result = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options)
+        return result.response === 0
+      },
+      setExporting: (value) => {
+        exporting = value
+        mainWindow?.webContents.send(IPC.exportState, { exporting: value })
+      },
+      reload: () => void mainWindow?.loadURL(`${APP_ORIGIN}/`).catch(() => undefined),
+    })
+
+    // Rebuilt when the mode changes: export and import are enabled only in local mode with the backend up.
+    function installMenu() {
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          buildMenuTemplate({
+            isMac: process.platform === 'darwin',
+            strings: menuStrings(app.getLocale()),
+            onSwitchServer: () => void switchServer(),
+            transfer: {
+              enabled: store.getMode() === 'local' && localBackend.info() !== null,
+              onExport: () => void transfer.exportData(),
+              onImport: () => void transfer.importData(),
+            },
+            onOpenDocs: () => void shell.openExternal(DOCS_URL),
+          }),
+        ),
+      )
+    }
+    installMenu()
 
     mainWindow = createMainWindow(app.getVersion(), store)
     mainWindow.on('closed', () => {
@@ -179,6 +220,7 @@ function start() {
     })
     // A page loaded after the download finished still shows the banner.
     mainWindow.webContents.on('did-finish-load', () => {
+      if (exporting) mainWindow?.webContents.send(IPC.exportState, { exporting: true })
       const pending = updater.pending()
       if (pending) mainWindow?.webContents.send(IPC.updateAvailable, pending)
     })

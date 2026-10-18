@@ -29,6 +29,7 @@ function desktopApi(): LaunchkitApi {
     getMode: vi.fn(async () => 'remote' as const),
     startLocal: vi.fn(async () => ({ ok: true as const })),
     openLogs: vi.fn(async () => {}),
+    onExportState: vi.fn(() => () => {}),
   }
 }
 

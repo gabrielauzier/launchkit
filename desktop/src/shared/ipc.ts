@@ -8,6 +8,7 @@ export const IPC = {
   getMode: 'mode:get',
   startLocal: 'local:start',
   openLogs: 'local:open-logs',
+  exportState: 'transfer:export-state',
   updateAvailable: 'updater:update-available',
 } as const
 
@@ -33,6 +34,8 @@ export interface LaunchkitApi {
   startLocal(): Promise<{ ok: boolean }>
   /** Opens the folder with the local backend's logs. */
   openLogs(): Promise<void>
+  /** Tells whether an export is running (the interface locks while it does); returns an unsubscribe. */
+  onExportState(callback: (state: { exporting: boolean }) => void): () => void
 }
 
 export const APP_VERSION_ARG = '--launchkit-app-version='

@@ -22,6 +22,13 @@ const api: LaunchkitApi = {
   getMode: () => ipcRenderer.invoke(IPC.getMode),
   startLocal: () => ipcRenderer.invoke(IPC.startLocal),
   openLogs: () => ipcRenderer.invoke(IPC.openLogs),
+  onExportState: (callback) => {
+    const listener = (_event: unknown, state: { exporting: boolean }) => callback(state)
+    ipcRenderer.on(IPC.exportState, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.exportState, listener)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld('launchkit', api)

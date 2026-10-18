@@ -1,12 +1,13 @@
 import net, { type AddressInfo } from 'node:net'
-import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { checksumDir } from '../src/main/test-support'
+import { readZip } from '../src/main/zip'
 import { startTestServer, type TestServer } from './support/test-server'
 import { closeAll, launchApp, newUserDataDir, readConfig } from './support/launch'
-import { api, backendPids, backendPort, createLocalData, isAlive, listData, signIn, startLocalMode } from './support/local'
+import { api, backendPids, backendPort, clickMenu, createLocalData, dialogState, isAlive, listData, releaseSave, signIn, startLocalMode, stubDialogs } from './support/local'
 
 const servers: TestServer[] = []
 
@@ -220,4 +221,129 @@ test('switching server in local mode keeps the data', async () => {
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible({ timeout: 60_000 })
   const again = await signIn(page, data.email)
   expect(await listData(page, again, data.workspaceId)).toEqual(before)
+})
+
+// ---- export and import (D22-D25) ----
+
+function exportTarget(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'launchkit-export-e2e-'))
+  exportDirs.push(dir)
+  return path.join(dir, 'export.zip')
+}
+const exportDirs: string[] = []
+test.afterEach(() => {
+  while (exportDirs.length) rmSync(exportDirs.pop()!, { recursive: true, force: true })
+})
+
+test('export writes a zip with manifest db.sql and files', async () => {
+  const { app, page } = await launchApp()
+  await startLocalMode(page)
+  await createLocalData(page)
+  const target = exportTarget()
+  await stubDialogs(app, { save: target })
+
+  await clickMenu(app, 'export-data')
+  await expect.poll(() => existsSync(target), { timeout: 30_000 }).toBe(true)
+
+  const entries = Object.fromEntries(readZip(readFileSync(target)).map((entry) => [entry.name, entry.data]))
+  const manifest = JSON.parse(entries['manifest.json'].toString()) as Record<string, unknown>
+  expect(manifest).toMatchObject({ formatVersion: 1, appVersion: expect.any(String), schemaRevision: expect.any(Number) })
+  expect(entries['db.sql'].toString()).toContain('local@example.com')
+  const uploaded = Object.keys(entries).filter((name) => name.startsWith('files/'))
+  expect(uploaded).toHaveLength(1)
+  expect(entries[uploaded[0]].toString()).toBe('%PDF-1.4 local file')
+  const { saveCalls } = await dialogState(app)
+  expect(saveCalls[0].defaultPath).toMatch(/^launchkit-export-\d{4}-\d{2}-\d{2}T[\d-]+Z?\.zip$/)
+})
+
+test('no write leaves the renderer while exporting', async () => {
+  const { app, page } = await launchApp()
+  await startLocalMode(page)
+  const data = await createLocalData(page)
+  const token = await signIn(page, data.email)
+  await stubDialogs(app, { save: exportTarget(), holdSave: true })
+
+  const writes: string[] = []
+  page.on('request', (request) => {
+    if (['POST', 'PATCH', 'DELETE', 'PUT'].includes(request.method())) writes.push(`${request.method()} ${request.url()}`)
+  })
+  await clickMenu(app, 'export-data')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('progressbar')).toBeVisible()
+
+  // Whatever the renderer sends while the export runs is refused by the main process.
+  const attempt = await api(page, '/api/workspaces', { method: 'POST', token, json: { name: 'Blocked' } })
+  expect(attempt.status).toBe(423)
+  expect(writes.every((entry) => entry.includes('/api/workspaces'))).toBe(true)
+  expect(writes).toHaveLength(1)
+
+  await releaseSave(app)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const after = await api(page, '/api/workspaces', { method: 'POST', token, json: { name: 'Allowed' } })
+  expect(after.status).toBe(201)
+})
+
+test('import into a new installation restores users workspaces files and login', async () => {
+  const first = await launchApp()
+  await startLocalMode(first.page)
+  const data = await createLocalData(first.page)
+  const token = await signIn(first.page, data.email)
+  const original = await listData(first.page, token, data.workspaceId)
+  const target = exportTarget()
+  await stubDialogs(first.app, { save: target })
+  await clickMenu(first.app, 'export-data')
+  await expect.poll(() => existsSync(target), { timeout: 30_000 }).toBe(true)
+  await expect.poll(async () => (await dialogState(first.app)).messages.length).toBeGreaterThan(0)
+  await first.app.close()
+
+  const second = await launchApp()
+  await startLocalMode(second.page)
+  await stubDialogs(second.app, { open: target, confirm: true })
+  await clickMenu(second.app, 'import-data')
+  await expect(second.page.getByRole('heading', { name: 'Login' })).toBeVisible({ timeout: 60_000 })
+  expect((await dialogState(second.app)).messages).toContain('Import finished')
+
+  const again = await signIn(second.page, data.email)
+  expect(await listData(second.page, again, data.workspaceId)).toEqual(original)
+  const setup = await api<{ has_users: boolean }>(second.page, '/api/setup/status')
+  expect(setup.body.has_users).toBe(true)
+})
+
+test('an invalid export file shows the error and keeps the database', async () => {
+  const { app, page, userDataDir } = await launchApp()
+  await startLocalMode(page)
+  await createLocalData(page)
+  const dir = path.dirname(exportTarget())
+  const bad = [
+    ['plain.zip', Buffer.from('this is not a zip')],
+    ['truncated.zip', Buffer.from('PK\u0003\u0004 half a zip')],
+  ] as const
+  for (const [name, bytes] of bad) {
+    const source = path.join(dir, name)
+    writeFileSync(source, bytes)
+    const before = { db: checksumDir(path.join(userDataDir, 'db')), files: checksumDir(path.join(userDataDir, 'files')) }
+    await stubDialogs(app, { open: source, confirm: true })
+    await clickMenu(app, 'import-data')
+    await expect.poll(async () => (await dialogState(app)).messages).toContain('Invalid export file')
+    expect({ db: checksumDir(path.join(userDataDir, 'db')), files: checksumDir(path.join(userDataDir, 'files')) }).toEqual(before)
+  }
+})
+
+test('import is refused on an installation with data', async () => {
+  const { app, page, userDataDir } = await launchApp()
+  await startLocalMode(page)
+  const data = await createLocalData(page)
+  const target = exportTarget()
+  await stubDialogs(app, { save: target })
+  await clickMenu(app, 'export-data')
+  await expect.poll(() => existsSync(target), { timeout: 30_000 }).toBe(true)
+  await expect.poll(async () => (await dialogState(app)).messages.length).toBeGreaterThan(0)
+
+  const before = { db: checksumDir(path.join(userDataDir, 'db')), files: checksumDir(path.join(userDataDir, 'files')) }
+  await stubDialogs(app, { open: target, confirm: true })
+  await clickMenu(app, 'import-data')
+  await expect.poll(async () => (await dialogState(app)).messages).toContain('Import is only available on a new installation')
+  expect({ db: checksumDir(path.join(userDataDir, 'db')), files: checksumDir(path.join(userDataDir, 'files')) }).toEqual(before)
+  const token = await signIn(page, data.email)
+  expect((await listData(page, token, data.workspaceId)).workspaces).toBeTruthy()
 })

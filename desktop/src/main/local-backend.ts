@@ -25,6 +25,13 @@ interface Options {
   migrationsFolder: string
 }
 
+export interface DataDump {
+  sql: string
+  schemaRevision: number
+}
+
+export type RestoreResult = { ok: true } | { ok: false; reason: 'has-users' | 'invalid' }
+
 export interface RunningBackend {
   url: string
   port: number
@@ -96,7 +103,36 @@ export function createLocalBackend({ fork, entry, userData, migrationsFolder }: 
     })
   }
 
+  let nextId = 1
+  /** One request to the running backend (export or import) and its reply. */
+  function ask<T>(message: Record<string, unknown>): Promise<T> {
+    const current = child
+    if (!current) return Promise.reject(new Error('the local backend is not running'))
+    const id = nextId++
+    return new Promise<T>((resolve, reject) => {
+      current.on('message', (reply) => {
+        const data = reply as { id?: number }
+        if (data.id === id) resolve(data as T)
+      })
+      current.on('exit', () => reject(new Error('the local backend exited')))
+      current.postMessage({ ...message, id })
+    })
+  }
+
   return {
+    /** The database as SQL, read by the backend that has it open. */
+    async dump(): Promise<DataDump> {
+      const reply = await ask<{ ok: boolean; sql?: string; schemaRevision?: number; message?: string }>({ type: 'dump' })
+      if (!reply.ok) throw new Error(reply.message ?? 'the export failed')
+      return { sql: reply.sql ?? '', schemaRevision: reply.schemaRevision ?? 0 }
+    },
+
+    /** Restores a dump into a database without users, all or nothing. */
+    async restore(dump: DataDump): Promise<RestoreResult> {
+      const reply = await ask<{ ok: boolean; reason?: 'has-users' | 'invalid' }>({ type: 'restore', ...dump })
+      return reply.ok ? { ok: true } : { ok: false, reason: reply.reason ?? 'invalid' }
+    },
+
     /** Backs the database up, starts the backend and waits until it listens. */
     async start(): Promise<RunningBackend> {
       const started = await startWithBackup({ userData, run: launch })

@@ -19,6 +19,7 @@ const LAUNCHKIT_MEMBERS = [
   'getServerUrl',
   'installUpdate',
   'isDesktop',
+  'onExportState',
   'onUpdateAvailable',
   'openExternal',
   'openLogs',
@@ -83,6 +84,8 @@ test('renderer cannot navigate away', async () => {
   expect(page.url()).toBe(before)
 })
 
+// The title is what task 3's proof (C20a) calls; the bridge has grown since (SSO, local mode, export),
+// so the list above is the current one (13 members) and this test fixes that list.
 test('window.launchkit exposes exactly the eight members', async () => {
   const { page } = await launchApp({ serverUrl: server.url })
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()

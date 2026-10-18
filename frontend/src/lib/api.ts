@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { writesBlocked } from '@/lib/write-lock'
 import type { NumberFormat, DateFormat } from '@/lib/format'
 import type {
   User,
@@ -26,6 +27,10 @@ export const WORKSPACE_STORAGE_KEY = 'workspace_id'
 
 // Add auth token + active workspace header to requests
 api.interceptors.request.use((config) => {
+  // Desktop export in progress: nothing may change the data under it.
+  if (writesBlocked() && !['get', 'head', 'options'].includes((config.method ?? 'get').toLowerCase())) {
+    return Promise.reject(new Error('Writes are blocked while the data is exported'))
+  }
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`

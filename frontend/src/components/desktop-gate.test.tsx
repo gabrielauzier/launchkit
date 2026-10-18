@@ -19,6 +19,7 @@ function installDesktopApi(serverUrl: string | null, mode: 'remote' | 'local' | 
     getMode: vi.fn(async () => mode),
     startLocal: vi.fn(async (): Promise<{ ok: boolean }> => ({ ok: true })),
     openLogs: vi.fn(async () => {}),
+    onExportState: vi.fn(() => () => {}),
   }
   Object.defineProperty(window, 'launchkit', { value: api, configurable: true })
   return api

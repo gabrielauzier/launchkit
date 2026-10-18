@@ -10,6 +10,8 @@ interface Deps {
   getServerUrl: () => string | null
   /** Headers only the main process may set on proxied requests (the local backend's session token). */
   getExtraHeaders?: () => Record<string, string>
+  /** True while an export runs: writes are refused so the data cannot change under it. */
+  isWriteBlocked?: () => boolean
   fetchFn: typeof fetch
 }
 
@@ -88,6 +90,9 @@ async function serveStatic(distDir: string, pathname: string): Promise<Response>
 }
 
 function proxyApi(deps: Deps, request: Request, url: URL): Promise<Response> | Response {
+  if (deps.isWriteBlocked?.() && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    return withCsp(new Response(JSON.stringify({ detail: 'Export in progress' }), { status: 423, headers: { 'content-type': 'application/json' } }))
+  }
   const serverUrl = deps.getServerUrl()
   if (!serverUrl) return withCsp(new Response('No server configured', { status: 503 }))
   const headers = new Headers(request.headers)

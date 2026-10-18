@@ -125,3 +125,43 @@ export function isAlive(pid: number): boolean {
     return false
   }
 }
+
+/** Replaces the dialogs of the main process: records what they were asked and answers as told. */
+export async function stubDialogs(
+  app: ElectronApplication,
+  options: { save?: string; open?: string; confirm?: boolean; holdSave?: boolean },
+): Promise<void> {
+  await app.evaluate(({ dialog }, opts) => {
+    const state = { saveCalls: [] as unknown[], messages: [] as string[], release: () => {} }
+    ;(globalThis as { __dialogs?: typeof state }).__dialogs = state
+    const d = dialog as unknown as Record<string, unknown>
+    d.showSaveDialog = async (...args: unknown[]) => {
+      state.saveCalls.push(args[args.length - 1])
+      if (opts.holdSave) await new Promise<void>((resolve) => (state.release = resolve))
+      return opts.save ? { canceled: false, filePath: opts.save } : { canceled: true }
+    }
+    d.showOpenDialog = async () => (opts.open ? { canceled: false, filePaths: [opts.open] } : { canceled: true, filePaths: [] })
+    d.showMessageBox = async (...args: unknown[]) => {
+      const options_ = args[args.length - 1] as { message: string; buttons: string[] }
+      state.messages.push(options_.message)
+      return { response: options_.buttons.length > 1 && opts.confirm === false ? 1 : 0 }
+    }
+  }, options)
+}
+
+export async function dialogState(app: ElectronApplication): Promise<{ saveCalls: Array<{ defaultPath?: string }>; messages: string[] }> {
+  return app.evaluate(() => {
+    const state = (globalThis as { __dialogs?: { saveCalls: unknown[]; messages: string[] } }).__dialogs
+    return { saveCalls: (state?.saveCalls ?? []) as never, messages: state?.messages ?? [] }
+  })
+}
+
+export async function releaseSave(app: ElectronApplication): Promise<void> {
+  await app.evaluate(() => (globalThis as { __dialogs?: { release: () => void } }).__dialogs?.release())
+}
+
+export async function clickMenu(app: ElectronApplication, id: string): Promise<void> {
+  await app.evaluate(({ Menu }, itemId) => {
+    Menu.getApplicationMenu()!.getMenuItemById(itemId)!.click()
+  }, id)
+}

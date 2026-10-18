@@ -7,7 +7,7 @@ export type SetServerUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'invalid-url' | 'insecure' | 'unreachable' }
 
-/** Mirrors desktop/src/shared/ipc.ts: exactly these twelve members. */
+/** Mirrors desktop/src/shared/ipc.ts: exactly these thirteen members. */
 export interface LaunchkitApi {
   isDesktop: true
   platform: string
@@ -24,6 +24,8 @@ export interface LaunchkitApi {
   startLocal(): Promise<{ ok: boolean }>
   /** Opens the folder with the local backend's logs. */
   openLogs(): Promise<void>
+  /** Tells whether an export is running (the interface locks while it does); returns an unsubscribe. */
+  onExportState(callback: (state: { exporting: boolean }) => void): () => void
 }
 
 declare global {

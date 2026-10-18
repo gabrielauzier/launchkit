@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from
 import { useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { getDesktopApi, isDesktop } from '@/lib/platform'
+import { ExportModal } from '@/components/export-modal'
 import { LocalFailed, LocalStarting } from '@/pages/mode-select'
 
 // Desktop only: on the web build the constants are false, so these chunks are never
@@ -41,7 +42,12 @@ function LocalGate({ children }: { children: ReactNode }) {
 
   if (phase === 'starting') return <LocalStarting />
   if (phase === 'failed') return <LocalFailed onRetry={retry} />
-  return <>{children}</>
+  return (
+    <>
+      {children}
+      <ExportModal />
+    </>
+  )
 }
 
 function ServerGate({ children }: { children: ReactNode }) {

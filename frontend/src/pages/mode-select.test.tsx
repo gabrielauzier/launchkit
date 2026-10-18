@@ -19,6 +19,7 @@ function installDesktopApi(startLocal: LaunchkitApi['startLocal']) {
     getMode: vi.fn(async () => null),
     startLocal,
     openLogs: vi.fn(async () => {}),
+    onExportState: vi.fn(() => () => {}),
   }
   Object.defineProperty(window, 'launchkit', { value: api, configurable: true })
   return api
