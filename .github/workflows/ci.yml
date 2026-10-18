@@ -553,6 +553,13 @@ jobs:
         if: steps.desktop-changes.outputs.run_desktop != 'false'
         run: npm run package:dir
 
+      # The packaged-app test starts the app with its local backend; it needs a display.
+      - name: Start a virtual display
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
       - name: Run tests
         if: steps.desktop-changes.outputs.run_desktop != 'false'
         run: npm test
@@ -606,18 +613,16 @@ jobs:
           npm ci --prefix ../frontend
           npm ci
 
-      - name: Build the app
-        if: steps.desktop-changes.outputs.run_desktop != 'false'
-        run: npm run build:all
-
+      # npm run test:e2e builds the app (frontend, main, bundled local backend) and runs every
+      # Playwright spec, including the local mode (local-flow.spec.ts) and the SSO deep link (sso.spec.ts).
       # Linux has no display on the runner; the app needs one to open a window.
       - name: Run Playwright tests (Linux)
         if: runner.os == 'Linux' && steps.desktop-changes.outputs.run_desktop != 'false'
-        run: xvfb-run --auto-servernum npx playwright test
+        run: xvfb-run --auto-servernum npm run test:e2e
 
       - name: Run Playwright tests
         if: runner.os != 'Linux' && steps.desktop-changes.outputs.run_desktop != 'false'
-        run: npx playwright test
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         if: ${{ failure() && steps.desktop-changes.outputs.run_desktop != 'false' }}

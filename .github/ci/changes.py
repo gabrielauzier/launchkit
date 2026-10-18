@@ -54,8 +54,9 @@ def changed_jobs():
             else:
                 # Unknown/shared paths (including workflows and this script) run everything.
                 return True, True, True, True, True
-        # The desktop app bundles the frontend, so a frontend change checks it too.
-        return backend, frontend, helm, backend_node, desktop or frontend
+        # The desktop app bundles the frontend and, for its local mode, backend-node: a change to
+        # either checks it too.
+        return backend, frontend, helm, backend_node, desktop or frontend or backend_node
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print(f"Cannot determine PR relevance ({type(error).__name__}); running all suites.")
         return True, True, True, True, True

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
@@ -51,7 +51,24 @@ describe('ci workflow', () => {
     expect(job, 'desktop-e2e job').toBeDefined()
     expect([...job.strategy!.matrix.os].sort()).toEqual(['macos-latest', 'ubuntu-latest', 'windows-latest'])
     expect(job.strategy!['fail-fast']).toBe(false)
-    expect(commands(job).some((command) => command.includes('playwright test'))).toBe(true)
+    expect(commands(job).some((command) => command.includes('playwright test') || command.includes('test:e2e'))).toBe(true)
+  })
+
+  it('desktop-e2e runs the local mode and deep link specs on the three systems', () => {
+    const job = ci.jobs['desktop-e2e']
+    expect([...job.strategy!.matrix.os].sort()).toEqual(['macos-latest', 'ubuntu-latest', 'windows-latest'])
+    // npm run test:e2e builds the app and runs the whole Playwright suite, with no file or title filter.
+    const runs = job.steps.filter((step) => step.run?.includes('npm run test:e2e'))
+    expect(runs.length).toBeGreaterThanOrEqual(2)
+    for (const step of runs) expect(step.run).not.toMatch(/--grep|-g |\.spec\.ts/)
+    expect(runs.some((step) => step.if?.includes("runner.os == 'Linux'") && step.run?.startsWith('xvfb-run'))).toBe(true)
+    // The script it calls builds first and the specs it must reach exist.
+    const scripts = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')).scripts as Record<string, string>
+    expect(scripts['test:e2e']).toBe('npm run build:all && playwright test')
+    for (const spec of ['local-flow.spec.ts', 'sso.spec.ts']) expect(existsSync(path.resolve(__dirname, '../e2e', spec)), spec).toBe(true)
+    const playwright = readFileSync(path.resolve(__dirname, '../playwright.config.mts'), 'utf8')
+    expect(playwright).toContain("testMatch: '**/*.spec.ts'")
+    expect(playwright).not.toMatch(/testIgnore|grep/)
   })
 
   it('both desktop jobs are gated on run_desktop', () => {

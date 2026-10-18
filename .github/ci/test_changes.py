@@ -70,8 +70,8 @@ class CIChangesTest(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", str(SELECTOR)], cwd=self.repo,
                                 env=env, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        # The desktop app bundles the frontend: unless a case gives a fifth value (run_desktop), it follows run_frontend.
-        desktop = expected[4] if len(expected) > 4 else expected[1]
+        # The desktop app bundles the frontend and backend-node: unless a case gives a fifth value (run_desktop), it follows either.
+        desktop = expected[4] if len(expected) > 4 else "true" if "true" in (expected[1], expected[3]) else "false"
         self.assertEqual(output_file.read_text(),
                          f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n"
                          f"run_backend_node={expected[3]}\nrun_desktop={desktop}\n")
@@ -120,6 +120,8 @@ class CIChangesTest(unittest.TestCase):
             ({"desktop/src/main/index.ts": "code"}, ("false", "false", "false", "false", "true")),
             ({"desktop/package.json": "{}"}, ("false", "false", "false", "false", "true")),
             ({"frontend/new.ts": "code"}, ("false", "true", "false", "false", "true")),
+            ({"backend-node/src/app.ts": "code"}, ("false", "false", "false", "true", "true")),
+            ({"contracts/openapi.json": "contract"}, ("true", "false", "false", "true", "true")),
             ({"backend/new.py": "code"}, ("true", "false", "false", "false", "false")),
             ({"charts/launchkit/new.yaml": "chart"}, ("false", "false", "true", "false", "false")),
             ({"docs/new.md": "docs"}, ("false", "false", "false", "false", "false")),
