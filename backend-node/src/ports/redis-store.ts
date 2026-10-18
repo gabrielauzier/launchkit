@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Redis } from 'ioredis'
 import type { KeyValueStore } from './key-value-store.ts'
 
@@ -55,7 +56,8 @@ export class RedisStore implements KeyValueStore {
       .multi()
       .zremrangebyscore(key, 0, nowSeconds - windowSeconds)
       .zcard(key)
-      .zadd(key, nowSeconds, String(nowSeconds))
+      // A unique member: two hits in the same millisecond must both count.
+      .zadd(key, nowSeconds, `${nowSeconds}:${randomUUID()}`)
       .expire(key, windowSeconds)
       .exec()
     if (!results) throw new Error('rate limit transaction was discarded')

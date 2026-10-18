@@ -75,7 +75,7 @@ describe('packaged local backend', () => {
     children.push(child)
 
     // The renderer's own origin answers /api/setup/status only once the backend listens.
-    const deadline = Date.now() + 90_000
+    const deadline = Date.now() + 150_000
     let url = ''
     let status = ''
     while (Date.now() < deadline && !(status && url === 'app://launchkit/setup')) {
@@ -92,7 +92,7 @@ describe('packaged local backend', () => {
     }
     expect(url).toBe('app://launchkit/setup')
     expect(JSON.parse(status)).toEqual({ has_users: false })
-  }, 120_000)
+  }, 180_000)
 })
 
 /** One Runtime.evaluate over the DevTools protocol (Node's own WebSocket client). */

@@ -295,6 +295,11 @@ Ambiente: macOS arm64, Node 22, Docker (containers `t04-*`, portas aleatórias),
 - D15b - exige um IPv4 não interno na máquina; o teste falha sem ele (nunca pula). Os runners do GitHub têm um.
 - D27b - o Playwright não se anexa ao app empacotado (fuse `enableNodeCliInspectArguments: false`, task 3); o proof usa `--remote-debugging-port` e CDP puro, só no macOS local e, em CI, depois de `package:dir`; Windows não roda `package:dir` nem esse teste.
 - D27a/D27b - o build dos instaladores (`dmg`, `nsis`, `AppImage`, `deb`) e os módulos nativos de outras arquiteturas não são construídos aqui; só `--dir` em macOS arm64.
+- D22b - o "nenhuma escrita sai do renderer" é provado por duas camadas: o cliente axios recusa a escrita (teste do modal) e o processo principal responde `423` a qualquer `POST`/`PATCH`/`PUT`/`DELETE` em `/api` enquanto exporta (e2e); a janela do `showSaveDialog` é segurada por um stub, então o diálogo nativo do sistema não é exercido.
+- D22a/D23/D24/D25 - os diálogos de salvar, abrir e mensagem são trocados por stubs no processo principal (o Playwright não aciona diálogos nativos); o que vale é o que o app pediu a eles (`defaultPath`, texto da mensagem). O checksum de `userData/db` em D24 e D25 é lido com o backend em execução (o banco aberto não muda de arquivo entre as duas leituras); não é lido depois de fechar, porque reabrir o PGlite altera arquivos.
+- D26a - o e2e do modo local e o do deep link rodam só em macOS aqui; D26b prova a configuração do CI (matriz, `npm run test:e2e` sem filtro, `run_desktop`), não a execução nos três sistemas.
+- D27a/D27b - só `package:dir` em macOS arm64 com assinatura ad-hoc (`-c.mac.identity=-`); o app empacotado não é notarizado nem passa pela validação de bibliotecas do hardened runtime com certificado.
+- `npx tsc --noEmit` na raiz de `frontend` dá TS5102 (`baseUrl` removido): o typecheck do projeto é `npm run typecheck` (`@typescript/native`), que passa; o `npx tsc` não é usado em lugar nenhum.
 - C-ids da task 3 sem proof local seguem como estavam (C11c do servidor Node passa a rodar quando o servidor Node for exercitado; C23c, C24, C25, C26b, C36c).
 - Python: o venv é instalado a partir de `backend/uv.lock` exportado com `pip` (o `uv` não está instalado); a versão resolvida pode diferir do lock em pacotes transitivos.
 
