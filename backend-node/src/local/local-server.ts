@@ -10,6 +10,7 @@ import { type JobLogger, registerJobs } from '../jobs.ts'
 import { InProcessQueue } from '../ports/in-process-queue.ts'
 import { LocalStorageProvider } from '../ports/local-storage.ts'
 import { MemoryStore } from '../ports/memory-store.ts'
+import { type DataDump, dumpData, restoreData } from './data-transfer.ts'
 import { requireLocalToken } from './token-guard.ts'
 
 export interface LocalServerOptions {
@@ -33,6 +34,10 @@ export interface LocalServer {
   ctx: AppContext
   /** How many migrations this start applied (0 when the schema was current). */
   migrationsApplied: number
+  /** A data-only dump of the database (the desktop app's export). */
+  dump(): Promise<DataDump>
+  /** Restores a dump into a database without users; throws `NotANewInstallationError` or `InvalidDumpError`. */
+  restore(dump: DataDump): Promise<void>
   close(): Promise<void>
 }
 
@@ -70,6 +75,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   mkdirSync(options.filesDir, { recursive: true })
   const database = await connectPglite(options.dataDir)
+  const pglite = database.pglite!
   const migrationsFolder = options.migrationsFolder ?? MIGRATIONS_FOLDER
   let migrationsApplied: number
   try {
@@ -110,6 +116,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     address: bound.address,
     ctx,
     migrationsApplied,
+    dump: () => dumpData(pglite),
+    restore: (dump) => restoreData(pglite, dump),
     close: async () => {
       await app.close()
       await jobQueue.close()

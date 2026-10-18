@@ -10,6 +10,8 @@ export type Database = PgDatabase<any, any, any>
 
 export interface DatabaseHandle {
   db: Database
+  /** The PGlite instance behind `db`, for the local mode's export and import (undefined on PostgreSQL). */
+  pglite?: PGlite
   close(): Promise<void>
 }
 
@@ -29,6 +31,7 @@ export async function connectPglite(dataDir: string): Promise<DatabaseHandle> {
   await client.waitReady
   return {
     db: drizzlePglite(client, { schema }) as unknown as Database,
+    pglite: client,
     close: () => client.close(),
   }
 }
