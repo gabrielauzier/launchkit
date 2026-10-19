@@ -179,7 +179,6 @@ function ServerGate({ children }: { children: ReactNode }) {
 //~   return <>{children}</>
 //~ }
 // select-stack:end
-
 // select-stack:begin node
 /**
  * On desktop, nothing renders (and no `/api` call leaves) until a mode is chosen: the choice
