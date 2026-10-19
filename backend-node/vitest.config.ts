@@ -8,7 +8,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/server.ts', 'src/worker.ts', 'src/cli.ts', 'src/migrate.ts'],
+      exclude: ['src/server.ts', 'src/worker.ts', 'src/scheduler.ts', 'src/cli.ts', 'src/migrate.ts'],
       thresholds: { lines: 60 },
     },
   },

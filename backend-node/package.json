@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "worker": "tsx src/worker.ts",
+    "scheduler": "tsx src/scheduler.ts",
     "cli": "tsx src/cli.ts",
     "test": "vitest run",
     "lint": "eslint .",
