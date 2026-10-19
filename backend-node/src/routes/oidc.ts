@@ -18,6 +18,7 @@ const OIDC_STATE_TTL_SECONDS = 600
 const EXISTING_USER_LINK_MODES = ['disabled', 'verified_email', 'email']
 const REQUEST_TIMEOUT_MS = 10_000
 const DESKTOP_NONCE_MIN_LENGTH = 32
+const DESKTOP_NONCE_MAX_LENGTH = 128
 
 type Json = Record<string, unknown>
 
@@ -269,7 +270,11 @@ export function oidcRoutes(ctx: AppContext) {
       if (redirectTarget !== undefined) {
         if (!config.oidcDesktopRedirects.includes(redirectTarget)) throw new HttpError(400, 'Invalid redirect_target')
         // The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if (desktopNonce === undefined || desktopNonce.length < DESKTOP_NONCE_MIN_LENGTH) {
+        if (
+          desktopNonce === undefined ||
+          desktopNonce.length < DESKTOP_NONCE_MIN_LENGTH ||
+          desktopNonce.length > DESKTOP_NONCE_MAX_LENGTH
+        ) {
           throw new HttpError(400, 'Invalid desktop_nonce')
         }
       }

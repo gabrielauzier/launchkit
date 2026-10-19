@@ -211,7 +211,7 @@ describe('OpenID Connect desktop sign-in', () => {
     const t = await appWith({ OIDC_DESKTOP_REDIRECT: TARGET })
     try {
       const target = `redirect_target=${encodeURIComponent(TARGET)}`
-      for (const query of [target, `${target}&desktop_nonce=`, `${target}&desktop_nonce=${'x'.repeat(31)}`]) {
+      for (const query of [target, `${target}&desktop_nonce=`, `${target}&desktop_nonce=${'x'.repeat(31)}`, `${target}&desktop_nonce=${'x'.repeat(129)}`]) {
         const reply = await login(t, query)
         expect(reply.statusCode, query).toBe(400)
         expect(reply.json()).toEqual({ detail: 'Invalid desktop_nonce' })

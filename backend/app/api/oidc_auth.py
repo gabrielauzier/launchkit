@@ -27,6 +27,7 @@ from app.services.workspace_service import create_personal_workspace_for_user
 router = APIRouter(prefix="/api/auth/oidc", tags=["auth"])
 OIDC_STATE_TTL = 600
 DESKTOP_NONCE_MIN_LENGTH = 32
+DESKTOP_NONCE_MAX_LENGTH = 128
 
 
 class OIDCConfigResponse(BaseModel):
@@ -79,7 +80,7 @@ async def oidc_login(
         if redirect_target not in settings.oidc_desktop_redirects:
             raise HTTPException(status_code=400, detail="Invalid redirect_target")
         # The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if desktop_nonce is None or len(desktop_nonce) < DESKTOP_NONCE_MIN_LENGTH:
+        if desktop_nonce is None or not DESKTOP_NONCE_MIN_LENGTH <= len(desktop_nonce) <= DESKTOP_NONCE_MAX_LENGTH:
             raise HTTPException(status_code=400, detail="Invalid desktop_nonce")
 
     state = secrets.token_urlsafe(32)

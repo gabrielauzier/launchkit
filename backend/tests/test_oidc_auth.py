@@ -766,6 +766,7 @@ async def test_oidc_login_rejects_missing_or_short_desktop_nonce(
         {},
         {"desktop_nonce": ""},
         {"desktop_nonce": "x" * 31},
+        {"desktop_nonce": "x" * 129},
     ):
         response = await client.get(
             "/api/auth/oidc/login",

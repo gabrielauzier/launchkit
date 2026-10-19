@@ -129,6 +129,21 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
     expect(boundary.status).toBe(307)
   })
 
+  it('D4 rejects a desktop_nonce longer than 128 characters', async () => {
+    const before = await stateKeys()
+    const longest = await login(api, DESKTOP, 'x'.repeat(128))
+    expect(longest.status).toBe(307)
+    const afterOk = await stateKeys()
+    for (const nonce of ['x'.repeat(129), 'x'.repeat(5000)]) {
+      const reply = await login(api, DESKTOP, nonce)
+      expect(reply.status, String(nonce.length)).toBe(400)
+      expect(reply.json).toEqual({ detail: 'Invalid desktop_nonce' })
+      expect(reply.headers.get('location')).toBeNull()
+      expect(await stateKeys()).toEqual(afterOk)
+    }
+    expect(afterOk.length).toBe(before.length + 1)
+  })
+
   it('D4 rejects an invalid redirect_target before it looks at the desktop_nonce', async () => {
     const reply = await login(api, 'https://evil.example/cb', null)
     expect(reply.status).toBe(400)
