@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -218,5 +219,16 @@ describe('desktop sign-in: the suite covers every criterion', () => {
     for (const id of ['D2', 'D3', 'D4', 'D5']) {
       expect(source, `no case titled "${id} ..."`).toMatch(new RegExp(`\\bit\\(\\s*[\`'"]${id} `))
     }
+  })
+
+  it('D6 contracts/openapi.json declares redirect_target as an optional query parameter of the OIDC login', () => {
+    const spec = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../openapi.json'), 'utf8')) as {
+      paths: Record<string, { get?: { parameters?: Array<{ name: string; in: string; required?: boolean }> } }>
+    }
+    const parameters = spec.paths['/api/auth/oidc/login']?.get?.parameters ?? []
+    const target = parameters.find((parameter) => parameter.name === 'redirect_target')
+    expect(target, 'redirect_target in the OpenAPI document').toBeDefined()
+    expect(target?.in).toBe('query')
+    expect(target?.required ?? false).toBe(false)
   })
 })

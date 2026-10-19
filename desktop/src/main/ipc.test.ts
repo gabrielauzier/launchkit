@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { IPC } from '../shared/ipc'
 import { trustedHandle, type IpcLike } from './ipc'
 
 function fakeIpc() {
@@ -33,5 +36,38 @@ describe('trusted ipc handlers', () => {
     const event = { senderFrame: { url: 'app://launchkit/connect' } }
     await expect(Promise.resolve(call('server:set-url', event, 'https://srv.example.com'))).resolves.toBe('got https://srv.example.com')
     expect(handler).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('every ipc channel the main process serves', () => {
+  const source = readFileSync(path.resolve(__dirname, 'index.ts'), 'utf8')
+  // Export and import are menu items of the main process, not channels; these two only carry events to the renderer.
+  const SEND_ONLY = ['exportState', 'updateAvailable']
+  const handled = Object.entries(IPC).filter(([key]) => !SEND_ONLY.includes(key))
+
+  it('is registered through trustedHandle and never through ipcMain directly', () => {
+    expect(source).not.toMatch(/ipcMain\s*\.\s*(handle|handleOnce|on|once)\b/)
+    for (const [key] of handled) {
+      expect(source, `IPC.${key}`).toContain(`trustedHandle(ipcMain, IPC.${key},`)
+    }
+    for (const key of SEND_ONLY) expect(source, `IPC.${key}`).toContain(`.send(IPC.${key},`)
+    // No channel is served that this list does not know.
+    const served = [...source.matchAll(/trustedHandle\(ipcMain, IPC\.(\w+),/g)].map((match) => match[1]).sort()
+    expect(served).toEqual(handled.map(([key]) => key).sort())
+  })
+
+  it('refuses a sender frame outside app://launchkit on each channel', () => {
+    for (const [key, channel] of handled) {
+      const listeners = new Map<string, (event: { senderFrame?: { url: string } | null }, ...args: unknown[]) => unknown>()
+      const handler = vi.fn()
+      trustedHandle({ handle: (name, listener) => listeners.set(name, listener) }, channel, handler)
+      const listener = listeners.get(channel)!
+      for (const frame of [{ url: 'https://evil.example/' }, { url: 'app://launchkit.evil.example/' }, { url: 'file:///x' }, null, undefined]) {
+        expect(() => listener({ senderFrame: frame }), `${key} ${JSON.stringify(frame)}`).toThrow('Untrusted sender')
+      }
+      expect(handler).not.toHaveBeenCalled()
+      listener({ senderFrame: { url: 'app://launchkit/login' } })
+      expect(handler).toHaveBeenCalledTimes(1)
+    }
   })
 })

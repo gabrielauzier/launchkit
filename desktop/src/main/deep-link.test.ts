@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createSsoFlow, SSO_PENDING_MS } from './sso-flow'
 import { createDeepLinkHandler, findDeepLink, parseDeepLink, setupDeepLinks } from './deep-link'
 
 const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl'
@@ -36,7 +37,7 @@ describe('deep links', () => {
     expect(navigate).toHaveBeenCalledTimes(2)
   })
 
-  it('sends an incomplete link to the sign-in failure screen', () => {
+  it('sends an incomplete link to the sign-in failure screen', async () => {
     const incomplete = [
       'launchkit://auth/callback',
       'launchkit://auth/callback#',
@@ -57,6 +58,50 @@ describe('deep links', () => {
       withoutServer.handle(link)
       expect(withoutServer.navigate, link).toHaveBeenCalledWith('app://launchkit/connect?sso=failed')
     }
+
+    // The same table with the real pending flow: expired, already used, and none started.
+    const sign = (nonce: string, token = TOKEN) => `launchkit://auth/callback#access_token=${token}&token_type=bearer&desktop_nonce=${nonce}`
+    async function started(clock: { now: number }) {
+      let opened = ''
+      const flow = createSsoFlow({ getServerUrl: () => 'https://srv.example.com', openExternal: async (url) => void (opened = url), now: () => clock.now })
+      await flow.start()
+      const nonce = new URL(opened).searchParams.get('desktop_nonce')!
+      const navigate = vi.fn()
+      const handle = createDeepLinkHandler({ getServerUrl: () => 'https://srv.example.com', navigate, focus: vi.fn(), consumeNonce: (value) => flow.consume(value) })
+      return { nonce, navigate, handle }
+    }
+    const failed = 'app://launchkit/login?sso=failed'
+
+    const late = { now: 1_000 }
+    const lateFlow = await started(late)
+    late.now += SSO_PENDING_MS + 1
+    lateFlow.handle(sign(lateFlow.nonce))
+    expect(lateFlow.navigate).toHaveBeenCalledWith(failed)
+    expect(lateFlow.navigate).toHaveBeenCalledTimes(1)
+
+    const used = await started({ now: 1_000 })
+    used.handle(sign(used.nonce))
+    expect(used.navigate).toHaveBeenLastCalledWith(expect.stringContaining('/auth/oidc/callback#access_token='))
+    used.handle(sign(used.nonce, `${TOKEN}b`))
+    expect(used.navigate).toHaveBeenLastCalledWith(failed)
+    expect(used.navigate).toHaveBeenCalledTimes(2)
+
+    const navigateNone = vi.fn()
+    createDeepLinkHandler({ getServerUrl: () => 'https://srv.example.com', navigate: navigateNone, focus: vi.fn(), consumeNonce: createSsoFlow({ getServerUrl: () => null, openExternal: async () => {} }).consume })(sign(NONCE))
+    expect(navigateNone).toHaveBeenCalledExactlyOnceWith(failed)
+  })
+
+  it('a link without a token does not spend the pending sign-in', async () => {
+    let opened = ''
+    const flow = createSsoFlow({ getServerUrl: () => 'https://srv.example.com', openExternal: async (url) => void (opened = url) })
+    await flow.start()
+    const nonce = new URL(opened).searchParams.get('desktop_nonce')!
+    const navigate = vi.fn()
+    const handle = createDeepLinkHandler({ getServerUrl: () => 'https://srv.example.com', navigate, focus: vi.fn(), consumeNonce: (value) => flow.consume(value) })
+    handle(`launchkit://auth/callback#error=access_denied&desktop_nonce=${nonce}`)
+    expect(navigate).toHaveBeenLastCalledWith('app://launchkit/login?sso=failed')
+    handle(`launchkit://auth/callback#access_token=${TOKEN}&token_type=bearer&desktop_nonce=${nonce}`)
+    expect(navigate).toHaveBeenLastCalledWith(expect.stringContaining('/auth/oidc/callback#access_token='))
   })
 
   it('refuses a sign-in with an expired, used or missing pending flow and stores nothing', () => {

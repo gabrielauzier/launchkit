@@ -16,7 +16,7 @@ export type SetServerUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'invalid-url' | 'insecure' | 'unreachable' }
 
-/** What the renderer sees as `window.launchkit`. Exactly these twelve members. */
+/** What the renderer sees as `window.launchkit`. Exactly these thirteen members. */
 export interface LaunchkitApi {
   isDesktop: true
   platform: string

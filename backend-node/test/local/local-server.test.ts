@@ -67,4 +67,21 @@ describe('the local server', () => {
     const first = await start()
     expect(first.migrationsApplied).toBe(1)
   })
+
+  it('never writes the session token or the secret key to its log, even at trace level', async () => {
+    const lines: string[] = []
+    const stream = { write: (line: string) => void lines.push(line) }
+    const server = await start({ logger: { level: 'trace', stream } as never, secretKey: 'secret-that-must-not-leak-0123456789' })
+    const url = `http://127.0.0.1:${server.port}`
+    await fetch(`${url}/api/health`, { headers: { 'X-Launchkit-Local-Token': TOKEN } })
+    await fetch(`${url}/api/health`, { headers: { 'X-Launchkit-Local-Token': 'wrong-token-value' } })
+    await fetch(`${url}/api/setup/status`, { headers: { 'X-Launchkit-Local-Token': TOKEN, Authorization: 'Bearer abc.def.ghi' } })
+    const log = lines.join('')
+    expect(log.length).toBeGreaterThan(0)
+    expect(log).not.toContain(TOKEN.slice(0, 16))
+    expect(log).not.toContain('wrong-token-value')
+    expect(log).not.toContain('secret-that-must-not-leak-0123456789')
+    expect(log.toLowerCase()).not.toContain('x-launchkit-local-token')
+    expect(log).not.toContain('abc.def.ghi')
+  })
 })
