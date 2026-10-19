@@ -19,6 +19,9 @@ export function launchArgs(userDataDir: string): string[] {
   return process.env.LAUNCHKIT_E2E_EXECUTABLE ? flags : [MAIN_ENTRY, ...flags]
 }
 
+/** Wide enough for the sidebar layout (the frontend switches at 1024px). */
+const DESKTOP_VIEWPORT_WIDTH = 1280
+
 export interface LaunchedApp {
   app: ElectronApplication
   page: Page
@@ -39,7 +42,7 @@ export function newUserDataDir(config?: Record<string, unknown>): string {
   return dir
 }
 
-export async function launchApp(options: { userDataDir?: string; serverUrl?: string } = {}): Promise<LaunchedApp> {
+export async function launchApp(options: { userDataDir?: string; serverUrl?: string; keepWindowSize?: boolean } = {}): Promise<LaunchedApp> {
   const userDataDir = options.userDataDir ?? newUserDataDir(options.serverUrl ? { serverUrl: options.serverUrl } : undefined)
   const app = await electron.launch({
     executablePath: process.env.LAUNCHKIT_E2E_EXECUTABLE,
@@ -48,6 +51,15 @@ export async function launchApp(options: { userDataDir?: string; serverUrl?: str
   })
   launched.push(app)
   const page = await app.firstWindow()
+  // A runner whose screen is smaller than the window opens it narrower than the
+  // frontend's `lg` breakpoint, and the sidebar then sits off-canvas.
+  if (!options.keepWindowSize) {
+    await app.evaluate(({ BrowserWindow }, minWidth) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      const [width, height] = win.getContentSize()
+      if (width < minWidth) win.setContentSize(minWidth, Math.max(height, 800))
+    }, DESKTOP_VIEWPORT_WIDTH)
+  }
   return { app, page, userDataDir, configPath: path.join(userDataDir, 'config.json') }
 }
 

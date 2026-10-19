@@ -39,13 +39,22 @@ test('Cmd or Ctrl+K opens the command palette', async () => {
 
 test('window bounds survive a restart', async () => {
   const userDataDir = newUserDataDir({ serverUrl: server.url })
-  const first = await launchApp({ userDataDir })
-  const wanted = { x: 120, y: 90, width: 1000, height: 700 }
+  const first = await launchApp({ userDataDir, keepWindowSize: true })
+  // The OS clamps a window to the display, so pick a rectangle that fits this one.
+  const area = await first.app.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea)
+  const wanted = {
+    x: area.x + 20,
+    y: area.y + 20,
+    width: Math.min(1000, area.width - 40),
+    height: Math.min(700, area.height - 40),
+  }
+  expect(wanted.width).toBeGreaterThanOrEqual(800)
+  expect(wanted.height).toBeGreaterThanOrEqual(600)
   await first.app.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0].setBounds(bounds), wanted)
   await first.app.close()
   expect(readConfig(first.configPath).bounds).toEqual(wanted)
 
-  const second = await launchApp({ userDataDir })
+  const second = await launchApp({ userDataDir, keepWindowSize: true })
   const restored = await second.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds())
   expect(restored).toEqual(wanted)
 })
