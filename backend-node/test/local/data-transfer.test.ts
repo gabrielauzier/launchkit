@@ -103,4 +103,107 @@ describe('data transfer', () => {
     const row = await target.query<{ preferences: { n: string } }>(`SELECT preferences FROM users`)
     expect(row.rows[0]?.preferences.n).toBe('COMMIT; DROP TABLE x;\nline -- two')
   })
+
+  async function fingerprint(client: PGlite) {
+    const one = async (query: string) => JSON.stringify((await client.query(query)).rows)
+    return {
+      counts: await counts(client),
+      pgClass: await one(`SELECT relname FROM pg_class ORDER BY relname`),
+      pgProc: await one(`SELECT count(*)::int AS n FROM pg_proc`),
+      pgAuthid: await one(`SELECT rolname FROM pg_authid ORDER BY rolname`),
+      pgDbRoleSetting: await one(`SELECT count(*)::int AS n FROM pg_db_role_setting`),
+      pgNamespace: await one(`SELECT nspname FROM pg_namespace ORDER BY nspname`),
+      searchPath: await one(`SHOW search_path`),
+      tables: await one(`SELECT table_schema, table_name FROM information_schema.tables ORDER BY 1, 2`),
+    }
+  }
+
+  const U = `INSERT INTO "users" ("id", "email", "hashed_password", "is_active", "is_superuser", "is_verified", "is_2fa_enabled") VALUES ('11111111-1111-1111-1111-111111111111', 'a@b.c', 'x', 'true', 'false', 'true', 'false');\n`
+
+  it('survives the round 2 attacks: nothing of the file reaches the SQL engine, the database fingerprint is unchanged', async () => {
+    const attacks: Array<[string, string]> = [
+      ['CR ends a comment: commit and drop', `-- x\rCOMMIT;\rDROP TABLE "workspaces";\n`],
+      ['CR ends a comment: set search_path', `-- x\rSET search_path = evil;\n`],
+      ['CR ends a comment after a valid row', `${U}-- x\rCOMMIT;\rDROP TABLE "workspaces";\n`],
+      ['CRLF comment', `-- x\r\nCOMMIT;\n`],
+      ['block comment', `/* x */ ${U}`],
+      ['comment header', `-- launchkit data dump\n${U}`],
+      ['tab', `TRUNCATE\t"users" CASCADE;\n`],
+      ['control character', `TRUNCATE "users"\u0001 CASCADE;\n`],
+      ['truncate pg_class', `TRUNCATE "pg_class" CASCADE;\n`],
+      ['truncate pg_catalog.pg_class', `TRUNCATE "pg_catalog"."pg_class" CASCADE;\n`],
+      ['truncate information_schema', `TRUNCATE "information_schema"."tables" CASCADE;\n`],
+      ['insert pg_authid', `INSERT INTO "pg_authid" ("rolname") VALUES ('evil');\n`],
+      ['insert pg_db_role_setting', `INSERT INTO "pg_db_role_setting" ("setdatabase") VALUES ('0');\n`],
+      ['insert pg_catalog.pg_authid', `INSERT INTO "pg_catalog"."pg_authid" ("rolname") VALUES ('evil');\n`],
+      ['insert information_schema', `INSERT INTO "information_schema"."tables" ("table_name") VALUES ('x');\n`],
+      ['drizzle migrations', `TRUNCATE "__drizzle_migrations" CASCADE;\n`],
+      ['unknown column', `INSERT INTO "users" ("nope") VALUES ('x');\n`],
+      ['value count mismatch', `INSERT INTO "users" ("id", "email") VALUES ('x');\n`],
+      ['on conflict', `${U.replace(');\n', ') ON CONFLICT DO NOTHING;\n')}`],
+      ['returning', `${U.replace(');\n', ') RETURNING "id";\n')}`],
+      ['truncate without cascade', `TRUNCATE "users";\n`],
+      ['truncate restart identity', `TRUNCATE "users" RESTART IDENTITY CASCADE;\n`],
+      ['lowercase keywords', `truncate "users" cascade;\n`],
+      ['double space', `TRUNCATE  "users" CASCADE;\n`],
+      ['missing final newline is fine but not a second statement on one line', `TRUNCATE "users" CASCADE; TRUNCATE "users" CASCADE;\n`],
+      ['unterminated literal', `INSERT INTO "users" ("id") VALUES ('1);\n`],
+      ['dollar quoting outside a literal', `INSERT INTO "users" ("id") VALUES ($$x$$);\n`],
+      ['number outside a literal', `INSERT INTO "users" ("id") VALUES (1);\n`],
+    ]
+    const target = await fresh()
+    await seed(target)
+    // The users exist, so a hostile text must be refused as invalid (its own text is judged first).
+    const empty = await fresh()
+    for (const database of [empty, target]) {
+      const before = await fingerprint(database)
+      for (const [label, text] of attacks) {
+        await expect(restoreData(database, { schemaRevision: 1, sql: text }), label).rejects.toBeInstanceOf(InvalidDumpError)
+        expect(await fingerprint(database), label).toEqual(before)
+      }
+    }
+  })
+
+  it('judges the text of the dump before it looks at the users', async () => {
+    const target = await fresh()
+    await seed(target)
+    await expect(restoreData(target, { schemaRevision: 1, sql: `COMMIT;\n` })).rejects.toBeInstanceOf(InvalidDumpError)
+    await expect(restoreData(target, { schemaRevision: 1, sql: U })).rejects.toBeInstanceOf(NotANewInstallationError)
+  })
+
+  it('restores literals with semicolons, quotes, newlines, comments, dollar quotes, unicode, json and NULL', async () => {
+    const names = [
+      "it's; a 'quote'",
+      'line1\nline2\r\nline3\rline4',
+      '-- not a comment /* nor this */ COMMIT; DROP TABLE x;',
+      '$$ dollar $tag$ body $tag$ $$',
+      'unicode: ñ 日本語 😀 \u0000'.replace('\u0000', ''),
+      'NULL',
+      'back\\slash \\n',
+      '',
+    ]
+    const source = await fresh()
+    await source.exec(
+      `INSERT INTO users (id, email, hashed_password, is_active, is_superuser, is_verified, is_2fa_enabled, preferences) VALUES ('11111111-1111-1111-1111-111111111111', 'a@b.c', 'x', true, false, true, false, '{"k":["a;b","--","\\n"],"n":null}')`,
+    )
+    for (const [index, name] of names.entries()) {
+      await source.query(`INSERT INTO workspaces (id, name, created_by_user_id, is_archived, created_at, icon) VALUES ($1, $2, '11111111-1111-1111-1111-111111111111', false, now(), $3)`, [
+        `00000000-0000-0000-0000-00000000000${index}`,
+        name,
+        index === 0 ? null : 'NULL',
+      ])
+    }
+    const target = await fresh()
+    await restoreData(target, await dumpData(source))
+    const copy = await target.query<{ name: string; icon: string | null }>(`SELECT name, icon FROM workspaces ORDER BY id`)
+    expect(copy.rows.map((row) => row.name)).toEqual(names)
+    expect(copy.rows.map((row) => row.icon)).toEqual([null, ...Array(names.length - 1).fill('NULL')])
+    const prefs = await target.query<{ preferences: unknown }>(`SELECT preferences FROM users`)
+    expect(prefs.rows[0]?.preferences).toEqual({ k: ['a;b', '--', '\n'], n: null })
+  })
+
+  it('writes a dump with no comment line', async () => {
+    const dump = await dumpData(await fresh())
+    expect(dump.sql).not.toMatch(/--|\/\*|\r/)
+  })
 })

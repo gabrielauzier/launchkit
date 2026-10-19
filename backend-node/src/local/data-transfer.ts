@@ -1,4 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite'
+import { getTableName, is } from 'drizzle-orm'
+import { PgTable } from 'drizzle-orm/pg-core'
+import * as schema from '../db/schema.ts'
 
 /** Raised by `restoreData` when the database already holds users: import is for new installations only. */
 export class NotANewInstallationError extends Error {
@@ -63,7 +66,7 @@ async function orderedTables(client: PGlite): Promise<string[]> {
  */
 export async function dumpData(client: PGlite): Promise<DataDump> {
   const tables = await orderedTables(client)
-  const lines = ['-- launchkit data dump', `TRUNCATE ${[...tables].reverse().map(ident).join(', ')} CASCADE;`]
+  const lines = [`TRUNCATE ${[...tables].reverse().map(ident).join(', ')} CASCADE;`]
   for (const table of tables) {
     const columns = (
       await client.query<{ name: string }>(
@@ -81,111 +84,147 @@ export async function dumpData(client: PGlite): Promise<DataDump> {
   return { sql: `${lines.join('\n')}\n`, schemaRevision: await schemaRevision(client) }
 }
 
-type Token = { kind: 'word' | 'ident' | 'literal' | 'punct'; text: string }
+type Statement =
+  | { kind: 'truncate'; tables: string[] }
+  | { kind: 'insert'; table: string; columns: string[]; values: Array<string | null> }
+
+/** What a dump may name: the tables of the app's schema that exist in `public`, and their columns. */
+async function allowlist(client: PGlite): Promise<Map<string, Set<string>>> {
+  const known = new Set(Object.values(schema as Record<string, unknown>).filter((value): value is PgTable => is(value, PgTable)).map((table) => getTableName(table)))
+  const columns = await client.query<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
+  )
+  const tables = await client.query<{ tablename: string }>(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+  const allowed = new Map<string, Set<string>>()
+  for (const { tablename } of tables.rows) if (known.has(tablename)) allowed.set(tablename, new Set())
+  for (const row of columns.rows) allowed.get(row.table_name)?.add(row.column_name)
+  return allowed
+}
 
 /**
- * Splits a dump into statements of tokens. Only the pieces `dumpData` writes are known: bare words,
- * "quoted identifiers", 'quoted literals' (with '' escapes), `( ) ,` and `;`; a `-- ...` comment
- * may stand between statements. Anything else is an invalid dump.
+ * Reads a dump with a closed grammar: exactly what `dumpData` writes, one statement per line, single
+ * spaces, no comment of any kind. Every table and column must be in the allowlist. The text is only
+ * ever read here; what runs later is built from the parsed names and values, never from the file.
  */
-function tokenize(sql: string): Token[][] {
-  const statements: Token[][] = []
-  let current: Token[] = []
+function parseDump(sql: string, allowed: Map<string, Set<string>>): Statement[] {
   let at = 0
   const fail = (what: string): never => {
-    throw new InvalidDumpError(`the dump has ${what} at ${at}`)
+    throw new InvalidDumpError(`the dump is not a dump of this app: ${what} at ${at}`)
   }
-  const quoted = (quote: string): string => {
-    let end = at + 1
-    for (;;) {
-      end = sql.indexOf(quote, end)
-      if (end < 0) return fail('an unterminated quote')
-      if (sql[end + 1] === quote) end += 2
-      else break
-    }
-    const text = sql.slice(at, end + 1)
+  const expect = (text: string) => {
+    if (!sql.startsWith(text, at)) fail(`expected ${JSON.stringify(text)}`)
+    at += text.length
+  }
+  const ident = (): string => {
+    expect('"')
+    const end = sql.indexOf('"', at)
+    if (end < 0) return fail('an unterminated identifier')
+    const name = sql.slice(at, end)
     at = end + 1
-    return text
+    return name
   }
+  const list = <T>(item: () => T): T[] => {
+    const items = [item()]
+    while (sql.startsWith(', ', at)) {
+      at += 2
+      items.push(item())
+    }
+    return items
+  }
+  const value = (): string | null => {
+    if (sql.startsWith('NULL', at)) {
+      at += 4
+      return null
+    }
+    expect("'")
+    let out = ''
+    for (;;) {
+      const quote = sql.indexOf("'", at)
+      if (quote < 0) return fail('an unterminated literal')
+      out += sql.slice(at, quote)
+      if (sql[quote + 1] === "'") {
+        out += "'"
+        at = quote + 2
+      } else {
+        at = quote + 1
+        return out
+      }
+    }
+  }
+  const table = (): string => {
+    const name = ident()
+    if (!allowed.has(name)) fail(`a table that is not the app's: ${JSON.stringify(name)}`)
+    return name
+  }
+
+  const statements: Statement[] = []
   while (at < sql.length) {
-    const char = sql[at]!
-    if (/\s/.test(char)) at++
-    else if (char === '-' && sql[at + 1] === '-' && current.length === 0) {
-      const newline = sql.indexOf('\n', at)
-      at = newline < 0 ? sql.length : newline + 1
-    } else if (char === "'") current.push({ kind: 'literal', text: quoted("'") })
-    else if (char === '"') current.push({ kind: 'ident', text: quoted('"') })
-    else if (char === '(' || char === ')' || char === ',') {
-      current.push({ kind: 'punct', text: char })
-      at++
-    } else if (char === ';') {
-      if (current.length > 0) statements.push(current)
-      current = []
-      at++
-    } else if (/[A-Za-z]/.test(char)) {
-      const start = at
-      while (at < sql.length && /[A-Za-z]/.test(sql[at]!)) at++
-      current.push({ kind: 'word', text: sql.slice(start, at).toUpperCase() })
-    } else fail(`an unexpected character ${JSON.stringify(char)}`)
+    if (sql.startsWith('TRUNCATE ', at)) {
+      at += 9
+      const tables = list(table)
+      expect(' CASCADE;\n')
+      statements.push({ kind: 'truncate', tables })
+    } else if (sql.startsWith('INSERT INTO ', at)) {
+      at += 12
+      const name = table()
+      expect(' (')
+      const columns = list(() => {
+        const column = ident()
+        if (!allowed.get(name)?.has(column)) fail(`a column that is not the table's: ${JSON.stringify(column)}`)
+        return column
+      })
+      expect(') VALUES (')
+      const values = list(value)
+      expect(');\n')
+      if (values.length !== columns.length) fail('a different number of columns and values')
+      statements.push({ kind: 'insert', table: name, columns, values })
+    } else fail('a statement that is not a TRUNCATE or an INSERT')
   }
-  if (current.length > 0) fail('a statement without a terminating semicolon')
   return statements
 }
 
-/** `a, b, c` of identifiers between `from` and a closing token; returns the index after the list. */
-function identList(tokens: Token[], from: number): number {
-  let at = from
-  for (;;) {
-    if (tokens[at]?.kind !== 'ident') throw new InvalidDumpError('the dump names something that is not a quoted identifier')
-    at++
-    if (tokens[at]?.text === ',' && tokens[at]?.kind === 'punct') at++
-    else return at
-  }
+const quoted = (name: string) => `"${name}"`
+
+/** Everything that can refuse a dump, without changing anything: its text, its schema and the users. */
+export async function checkDump(client: PGlite, dump: DataDump): Promise<Statement[]> {
+  if (dump.schemaRevision > (await schemaRevision(client))) throw new InvalidDumpError('the export comes from a newer version')
+  // The dump is judged on its own text first, whatever the database holds.
+  const statements = parseDump(dump.sql, await allowlist(client))
+  const users = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "users"')
+  if ((users.rows[0]?.n ?? 0) > 0) throw new NotANewInstallationError()
+  return statements
 }
 
-/** Only `TRUNCATE "t", ... CASCADE` and `INSERT INTO "t" ("c", ...) VALUES ('v' | NULL, ...)` are statements of a dump. */
-function checkStatement(tokens: Token[]): void {
-  const word = (at: number, text: string) => tokens[at]?.kind === 'word' && tokens[at]?.text === text
-  const punct = (at: number, text: string) => tokens[at]?.kind === 'punct' && tokens[at]?.text === text
-  const bad = () => new InvalidDumpError('the dump has a statement that is not a TRUNCATE or INSERT of the dump')
-  if (word(0, 'TRUNCATE')) {
-    const end = identList(tokens, 1)
-    if (!word(end, 'CASCADE') || tokens.length !== end + 1) throw bad()
-    return
+/** Whether the import `id` committed: the marker is written inside the restore transaction. */
+export async function hasImport(client: PGlite, id: string): Promise<boolean> {
+  try {
+    const result = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "launchkit_internal"."imports" WHERE "id" = $1', [id])
+    return (result.rows[0]?.n ?? 0) > 0
+  } catch {
+    return false
   }
-  if (word(0, 'INSERT') && word(1, 'INTO') && tokens[2]?.kind === 'ident' && punct(3, '(')) {
-    let at = identList(tokens, 4)
-    if (!punct(at, ')') || !word(at + 1, 'VALUES') || !punct(at + 2, '(')) throw bad()
-    at += 3
-    for (;;) {
-      const value = tokens[at]
-      if (!(value?.kind === 'literal' || (value?.kind === 'word' && value.text === 'NULL'))) throw bad()
-      at++
-      if (punct(at, ',')) at++
-      else break
-    }
-    if (!punct(at, ')') || tokens.length !== at + 1) throw bad()
-    return
-  }
-  throw bad()
 }
 
 /**
- * Restores a dump into a database with no users, all or nothing. Refuses a dump made by a newer
- * schema (`schemaRevision`) and one whose SQL fails; either leaves the database as it was.
+ * Restores a dump into a database with no users, all or nothing, in one transaction: TRUNCATEs of
+ * allowlisted tables and parameterised INSERTs, plus the import marker. Refuses a dump that is not
+ * the grammar above or comes from a newer schema; either leaves the database as it was.
  */
-export async function restoreData(client: PGlite, dump: DataDump): Promise<void> {
-  if (dump.schemaRevision > (await schemaRevision(client))) throw new InvalidDumpError('the export comes from a newer version')
-  // A dump is judged on its own text first, whatever the database holds.
-  // Nothing runs before the whole text is known to be the dump's own grammar: a `COMMIT;` in the
-  // file would end the transaction below and keep what came before it.
-  const statements = tokenize(dump.sql)
-  for (const statement of statements) checkStatement(statement)
-  const users = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "users"')
-  if ((users.rows[0]?.n ?? 0) > 0) throw new NotANewInstallationError()
+export async function restoreData(client: PGlite, dump: DataDump, importId = 'unmarked', hooks: { beforeCommit?: () => void } = {}): Promise<void> {
+  const statements = await checkDump(client, dump)
   try {
     await client.transaction(async (tx) => {
-      await tx.exec(dump.sql)
+      for (const statement of statements) {
+        if (statement.kind === 'truncate') await tx.query(`TRUNCATE ${statement.tables.map(quoted).join(', ')} CASCADE`)
+        else {
+          const placeholders = statement.values.map((_, index) => `$${index + 1}`).join(', ')
+          await tx.query(`INSERT INTO ${quoted(statement.table)} (${statement.columns.map(quoted).join(', ')}) VALUES (${placeholders})`, statement.values)
+        }
+      }
+      await tx.query('CREATE SCHEMA IF NOT EXISTS "launchkit_internal"')
+      await tx.query('CREATE TABLE IF NOT EXISTS "launchkit_internal"."imports" ("id" text PRIMARY KEY)')
+      await tx.query('INSERT INTO "launchkit_internal"."imports" ("id") VALUES ($1)', [importId])
+      hooks.beforeCommit?.()
     })
   } catch (error) {
     throw new InvalidDumpError(error instanceof Error ? error.message : String(error))
