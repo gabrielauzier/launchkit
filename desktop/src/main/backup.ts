@@ -47,8 +47,14 @@ export async function startWithBackup<T>({ userData, run, now = Date.now }: Opti
       await rm(dbDir, { recursive: true, force: true })
       await cp(pending, dbDir, { recursive: true })
     } else {
-      await cp(dbDir, partial, { recursive: true })
-      await rename(partial, pending)
+      try {
+        await cp(dbDir, partial, { recursive: true })
+        await rename(partial, pending)
+      } catch (error) {
+        // A copy that failed is not a backup, and must not wait for the next start to disappear.
+        await rm(partial, { recursive: true, force: true })
+        throw error
+      }
     }
   }
 

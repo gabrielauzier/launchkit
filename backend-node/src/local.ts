@@ -28,31 +28,36 @@ async function start(settings: Start): Promise<void> {
 }
 
 /** Export and import run here because this process owns the database directory. */
-async function transfer(message: { type: string; id?: number; sql?: string; schemaRevision?: number }): Promise<void> {
-  const reply = (body: Record<string, unknown>) => parentPort?.postMessage({ ...body, id: message.id })
+async function transfer(message: { type: string; id?: number; sql?: string; schemaRevision?: number; importId?: string }): Promise<void> {
+  const reply = (type: string, body: Record<string, unknown>) => parentPort?.postMessage({ type, ...body, id: message.id })
+  const type = `${message.type}-result`
   try {
     if (!server) throw new Error('the local backend is not running')
+    const dump = { sql: message.sql ?? '', schemaRevision: message.schemaRevision ?? 0 }
     if (message.type === 'dump') {
-      const dump = await server.dump()
-      reply({ type: 'dump-result', ok: true, sql: dump.sql, schemaRevision: dump.schemaRevision })
+      const done = await server.dump()
+      reply(type, { ok: true, sql: done.sql, schemaRevision: done.schemaRevision })
+    } else if (message.type === 'has-import') {
+      reply(type, { ok: true, committed: await server.hasImport(message.importId ?? '') })
+    } else if (message.type === 'check') {
+      await server.check(dump)
+      reply(type, { ok: true })
     } else {
-      await server.restore({ sql: message.sql ?? '', schemaRevision: message.schemaRevision ?? 0 })
-      reply({ type: 'restore-result', ok: true })
+      await server.restore(dump, message.importId)
+      reply(type, { ok: true })
     }
   } catch (error) {
-    const text = error instanceof Error ? error.message : String(error)
-    reply({
-      type: message.type === 'dump' ? 'dump-result' : 'restore-result',
+    reply(type, {
       ok: false,
       reason: error instanceof NotANewInstallationError ? 'has-users' : 'invalid',
-      message: text,
+      message: error instanceof Error ? error.message : String(error),
     })
   }
 }
 
 parentPort.on('message', ({ data }) => {
   const message = data as { type?: string } & Partial<Start>
-  if (message.type === 'dump' || message.type === 'restore') void transfer(message as Parameters<typeof transfer>[0])
+  if (message.type === 'dump' || message.type === 'restore' || message.type === 'check' || message.type === 'has-import') void transfer(message as Parameters<typeof transfer>[0])
   if (message.type === 'start') void start(message as Start)
   if (message.type === 'shutdown') {
     void (server?.close() ?? Promise.resolve()).finally(() => process.exit(0))

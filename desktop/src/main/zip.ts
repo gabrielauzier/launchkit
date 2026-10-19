@@ -90,14 +90,16 @@ export const MAX_ENTRY_BYTES = 256 * 1024 * 1024
 export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 export const MAX_ENTRIES = 100_000
 
-/** Names the archive may carry: relative, no empty, `.`, `..` or drive/stream (`:`) segments, no NUL or backslash. */
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/** Names the archive may carry: relative, no empty, `.`, `..` or drive/stream (`:`) segments, no NUL or backslash, nothing Windows cannot create. */
 function checkName(name: string): void {
   const unsafe =
     name === '' ||
     name.startsWith('/') ||
     name.includes('\0') ||
     name.includes('\\') ||
-    name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..' || segment.includes(':'))
+    name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..' || segment.includes(':') || RESERVED.test(segment) || /[. ]$/.test(segment))
   if (unsafe) throw new ZipError(`unsafe entry name: ${JSON.stringify(name)}`)
 }
 
@@ -137,8 +139,9 @@ export function readZip(buffer: Buffer, limits: ReadLimits = {}): ZipEntry[] {
     cursor += 46 + nameLength + extraLength + commentLength
 
     checkName(name)
-    if (names.has(name)) throw new ZipError(`duplicate entry: ${name}`)
-    names.add(name)
+    // Compared without case: macOS and Windows would write both names to one file.
+    if (names.has(name.toLowerCase())) throw new ZipError(`duplicate entry: ${name}`)
+    names.add(name.toLowerCase())
     // Declared sizes are checked before anything is inflated; the inflate is then capped at the declared size.
     if (size > maxEntry || (total += size) > maxTotal) throw new ZipError('an entry is too large')
     if (localOffset + 30 > buffer.length || buffer.readUInt32LE(localOffset) !== LOCAL) throw new ZipError('an entry is damaged')

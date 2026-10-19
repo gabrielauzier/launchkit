@@ -47,6 +47,11 @@ describe('every ipc channel the main process serves', () => {
 
   it('is registered through trustedHandle and never through ipcMain directly', () => {
     expect(source).not.toMatch(/ipcMain\s*\.\s*(handle|handleOnce|on|once)\b/)
+    // ipcMain may only be named in the import and as the first argument of trustedHandle: no alias, no destructuring.
+    const rest = source
+      .replace(/import \{[^}]*\} from 'electron'/, '')
+      .replaceAll('trustedHandle(ipcMain, ', 'trustedHandle(')
+    expect(rest).not.toMatch(/\bipcMain\b/)
     for (const [key] of handled) {
       expect(source, `IPC.${key}`).toContain(`trustedHandle(ipcMain, IPC.${key},`)
     }

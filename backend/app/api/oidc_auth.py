@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import re
 import secrets
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -28,6 +29,8 @@ router = APIRouter(prefix="/api/auth/oidc", tags=["auth"])
 OIDC_STATE_TTL = 600
 DESKTOP_NONCE_MIN_LENGTH = 32
 DESKTOP_NONCE_MAX_LENGTH = 128
+# base64url, what the app generates: also keeps len() (code points) and JS .length (UTF-16) from disagreeing.
+DESKTOP_NONCE_PATTERN = re.compile(r"[A-Za-z0-9_-]{%d,%d}" % (DESKTOP_NONCE_MIN_LENGTH, DESKTOP_NONCE_MAX_LENGTH))
 
 
 class OIDCConfigResponse(BaseModel):
@@ -80,7 +83,7 @@ async def oidc_login(
         if redirect_target not in settings.oidc_desktop_redirects:
             raise HTTPException(status_code=400, detail="Invalid redirect_target")
         # The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if desktop_nonce is None or not DESKTOP_NONCE_MIN_LENGTH <= len(desktop_nonce) <= DESKTOP_NONCE_MAX_LENGTH:
+        if desktop_nonce is None or not DESKTOP_NONCE_PATTERN.fullmatch(desktop_nonce):
             raise HTTPException(status_code=400, detail="Invalid desktop_nonce")
 
     state = secrets.token_urlsafe(32)

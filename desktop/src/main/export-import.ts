@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { DataDump, RestoreResult } from './local-backend'
@@ -66,25 +67,100 @@ function parseExport(source: string): { manifest: Manifest; sql: string; files: 
   return { manifest, sql: dbEntry.data.toString('utf8'), files: entries.filter((entry) => entry.name.startsWith('files/') && !entry.name.endsWith('/')) }
 }
 
+export interface ImportHooks {
+  /** Test seam: called at each point where a crash must leave a consistent state. */
+  at?: (point: ImportPoint) => void | Promise<void>
+}
+
+export type ImportPoint = 'staged' | 'journaled' | 'mid-swap' | 'swapped' | 'restoring' | 'committed' | 'cleaned'
+
+interface Journal {
+  id: string
+  hadFiles: boolean
+}
+
+const names = (filesDir: string) => ({ staging: `${filesDir}.import-new`, previous: `${filesDir}.import-old` })
+
+function readJournal(file: string): Journal | null {
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<Journal>
+    return typeof parsed.id === 'string' && typeof parsed.hadFiles === 'boolean' ? { id: parsed.id, hadFiles: parsed.hadFiles } : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * Imports an export into a new installation, all or nothing. The archive is read and checked first
- * (names, sizes, checksums, manifest); `files/` is written to a folder beside the real one and swapped
- * in, the backend then restores the database in one transaction (and refuses one that has users or a
- * dump outside the dump's grammar). Any failure swaps the old files back, so `db` and `files` end up
- * exactly as they were.
+ * Brings `files` to the state of the database: with the import committed the new files stay and the
+ * old ones go; without it the old files come back and the new ones go. Only then is the journal removed.
+ * Every layout a crash can leave is covered (before the swap, in the middle of it, after it).
+ */
+function settle(filesDir: string, journalFile: string, journal: Journal, committed: boolean): void {
+  const { staging, previous } = names(filesDir)
+  if (committed) {
+    rmSync(previous, { recursive: true, force: true })
+    rmSync(staging, { recursive: true, force: true })
+  } else {
+    if (existsSync(previous)) {
+      rmSync(filesDir, { recursive: true, force: true })
+      renameSync(previous, filesDir)
+    } else if (!journal.hadFiles && !existsSync(staging)) {
+      // The swap happened and there was nothing before it.
+      rmSync(filesDir, { recursive: true, force: true })
+    }
+    rmSync(staging, { recursive: true, force: true })
+  }
+  rmSync(journalFile, { force: true })
+}
+
+/**
+ * Run when the local backend is up: finishes or undoes an import that a crash interrupted, so `files`
+ * and the database are both as before it or both as after it. Without a journal a leftover
+ * `files.import-new` is preparation garbage (it was never live); a leftover `files.import-old` is kept.
+ */
+export async function recoverImport(options: { userData: string; filesDir: string; hasImport: (id: string) => Promise<boolean> }): Promise<void> {
+  const journalFile = path.join(options.userData, JOURNAL)
+  if (!existsSync(journalFile)) {
+    rmSync(names(options.filesDir).staging, { recursive: true, force: true })
+    return
+  }
+  const journal = readJournal(journalFile)
+  if (!journal) throw new Error('the import journal cannot be read')
+  settle(options.filesDir, journalFile, journal, await options.hasImport(journal.id))
+}
+
+const JOURNAL = 'import.journal.json'
+
+/**
+ * Imports an export into a new installation, all or nothing even if the process dies. Every refusal
+ * (the zip, its names and sizes, the dump's grammar, the schema, a database with users) comes first
+ * and writes nothing. Then `files/` is staged beside the real folder, a journal is written, the
+ * folders are swapped and the backend restores the database in one transaction that also records
+ * the journal's id. A failure puts the old files back; a crash is settled by `recoverImport`.
  */
 export async function importData(options: {
   source: string
   filesDir: string
-  restore: (dump: DataDump) => Promise<RestoreResult>
+  userData: string
+  check: (dump: DataDump) => Promise<RestoreResult>
+  restore: (dump: DataDump, importId: string) => Promise<RestoreResult>
+  hasImport: (id: string) => Promise<boolean>
+  hooks?: ImportHooks
 }): Promise<ImportResult> {
+  const at = async (point: ImportPoint) => options.hooks?.at?.(point)
   const parsed = parseExport(options.source)
   if (!parsed) return { ok: false, reason: 'invalid' }
+  const dump = { sql: parsed.sql, schemaRevision: parsed.manifest.schemaRevision }
+  const checked = await options.check(dump)
+  if (!checked.ok) return { ok: false, reason: checked.reason === 'has-users' ? 'not-new' : 'invalid' }
 
-  const staging = `${options.filesDir}.import-new`
-  const previous = `${options.filesDir}.import-old`
+  const { staging, previous } = names(options.filesDir)
+  const journalFile = path.join(options.userData, JOURNAL)
+  // A journal still here belongs to an import that never settled: recovery runs at start, never here.
+  if (existsSync(journalFile)) throw new Error('an earlier import has not been settled')
+  // Never delete an old folder nobody settled: keep it under another name.
+  if (existsSync(previous)) renameSync(previous, `${previous}.${Date.now()}`)
   rmSync(staging, { recursive: true, force: true })
-  rmSync(previous, { recursive: true, force: true })
   try {
     mkdirSync(staging, { recursive: true })
     for (const entry of parsed.files) {
@@ -96,26 +172,35 @@ export async function importData(options: {
     rmSync(staging, { recursive: true, force: true })
     throw error
   }
+  await at('staged')
 
-  const hadFiles = existsSync(options.filesDir)
-  if (hadFiles) renameSync(options.filesDir, previous)
+  const journal: Journal = { id: randomUUID(), hadFiles: existsSync(options.filesDir) }
+  mkdirSync(options.userData, { recursive: true })
+  writeFileSync(`${journalFile}.tmp`, JSON.stringify(journal))
+  renameSync(`${journalFile}.tmp`, journalFile)
+  await at('journaled')
+
+  if (journal.hadFiles) renameSync(options.filesDir, previous)
+  await at('mid-swap')
   renameSync(staging, options.filesDir)
-  const revert = () => {
-    rmSync(options.filesDir, { recursive: true, force: true })
-    if (hadFiles) renameSync(previous, options.filesDir)
-  }
+  await at('swapped')
 
   let restored: RestoreResult
   try {
-    restored = await options.restore({ sql: parsed.sql, schemaRevision: parsed.manifest.schemaRevision })
+    await at('restoring')
+    restored = await options.restore(dump, journal.id)
   } catch (error) {
-    revert()
+    // Unknown whether the commit happened: ask the database; if it cannot answer, recovery decides at the next start.
+    const committed = await options.hasImport(journal.id)
+    settle(options.filesDir, journalFile, journal, committed)
     throw error
   }
   if (!restored.ok) {
-    revert()
+    settle(options.filesDir, journalFile, journal, false)
     return { ok: false, reason: restored.reason === 'has-users' ? 'not-new' : 'invalid' }
   }
-  rmSync(previous, { recursive: true, force: true })
+  await at('committed')
+  settle(options.filesDir, journalFile, journal, true)
+  await at('cleaned')
   return { ok: true }
 }

@@ -127,10 +127,22 @@ export function createLocalBackend({ fork, entry, userData, migrationsFolder }: 
       return { sql: reply.sql ?? '', schemaRevision: reply.schemaRevision ?? 0 }
     },
 
-    /** Restores a dump into a database without users, all or nothing. */
-    async restore(dump: DataDump): Promise<RestoreResult> {
-      const reply = await ask<{ ok: boolean; reason?: 'has-users' | 'invalid' }>({ type: 'restore', ...dump })
+    /** Restores a dump into a database without users, all or nothing; `importId` is the marker the recovery looks for. */
+    async restore(dump: DataDump, importId?: string): Promise<RestoreResult> {
+      const reply = await ask<{ ok: boolean; reason?: 'has-users' | 'invalid' }>({ type: 'restore', importId, ...dump })
       return reply.ok ? { ok: true } : { ok: false, reason: reply.reason ?? 'invalid' }
+    },
+
+    /** Every refusal of `restore`, without changing anything. */
+    async check(dump: DataDump): Promise<RestoreResult> {
+      const reply = await ask<{ ok: boolean; reason?: 'has-users' | 'invalid' }>({ type: 'check', ...dump })
+      return reply.ok ? { ok: true } : { ok: false, reason: reply.reason ?? 'invalid' }
+    },
+
+    /** Whether the import with this id committed (its marker is in the database). */
+    async hasImport(importId: string): Promise<boolean> {
+      const reply = await ask<{ ok: boolean; committed?: boolean }>({ type: 'has-import', importId })
+      return reply.ok && reply.committed === true
     },
 
     /** Backs the database up, starts the backend and waits until it listens. */

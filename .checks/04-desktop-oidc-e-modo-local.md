@@ -109,6 +109,7 @@ Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.te
 Proof: `cd backend && python -m pytest tests/test_oidc_auth.py -k desktop_nonce`
 Proof: `cd backend-node && npx vitest run test/routes/oidc.test.ts -t "desktop_nonce"`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a desktop_nonce longer than 128 characters"` e o mesmo com `CONTRACT_STACK=node` (limite máximo acrescentado pelo Verifier; o critério acima não muda)
+Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a desktop_nonce that is not base64url"` e o mesmo com `CONTRACT_STACK=node` (o `desktop_nonce` é `[A-Za-z0-9_-]{32,128}`; o critério acima não muda)
 
 **D5** - Sem `redirect_target` (com a lista configurada) o estado guardado é `{"nonce","code_verifier"}` (também quando só `desktop_nonce` vem na query) e o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D5 "`
@@ -207,6 +208,7 @@ Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "restores the or
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "restores the database from the pending copy when the app died in the middle of a migration"` (o app morre no meio da migration; o próximo start recomeça da cópia boa e a guarda como backup)
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "puts the pending copy back when the restarted migration fails too"`
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "ignores a pending copy that was only half written"`
+Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "removes the half-made copy at once when the copy fails"`
 
 **D19a** - Se o backend local não inicia (banco corrompido, saída antes do `ready`), a tela mostra `Could not start the local backend` (pt-BR `Não foi possível iniciar o backend local`) com os botões `Try again` e `Open logs` (pt-BR `Tentar de novo` e `Abrir logs`), e o banco continua com o mesmo checksum
 Proof: `cd frontend && npx vitest run src/pages/mode-select.test.tsx -t "shows the local backend failure with retry and logs actions"`
@@ -244,6 +246,12 @@ Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "r
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "puts the old files back when the restore fails or throws"`
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses a hostile archive before the restore or any write"`
 Proof: `cd desktop && npx vitest run src/main/zip.test.ts` (bomba de descompressão, tamanhos declarados, nomes duplicados e colidentes, CRC e tamanho só no payload)
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "survives the round 2 attacks"` (CR em comentário, `pg_class`/`pg_authid`/`pg_db_role_setting`/`pg_catalog.*`/`information_schema.*`, `ON CONFLICT`, `RETURNING`, `TRUNCATE` sem `CASCADE`; impressão digital do banco igual depois de cada ataque)
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "judges the text of the dump before it looks at the users"`
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "restores literals with semicolons"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "a refused import writes nothing"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "after a crash, files and database are both before or both after"`
+Proof: `cd desktop && npx vitest run scripts/import-crash.test.ts` (processo filho real morto por SIGKILL em staged, journaled, mid-swap, swapped, restoring, committed e cleaned; depois da recuperação `db` e `files` ficam ambos antes ou ambos depois)
 
 **D25** - Com usuários no banco local, importar é recusado com `Import is only available on a new installation` (pt-BR `A importação só está disponível em uma instalação nova`) e nada muda (checksum do banco e dos arquivos igual)
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses to import when the database already has users"`
@@ -314,6 +322,8 @@ Ambiente: macOS arm64, Node 22, PostgreSQL 16 (Docker `t04-pg`, ou o do Homebrew
 - Verifier, finding 11 (não corrigido): `server.cjs` e seus externos ficam em `resources/backend`, fora do asar e fora da validação de integridade do asar (`enableEmbeddedAsarIntegrityValidation` cobre só o `app.asar`); quem pode escrever na pasta de instalação pode trocar o backend.
 - Redis 6.2 contra 8: os proofs de contrato e o R1 deste batch rodaram com o `redis-server` 6.2 do pacote `redislite`; o compose e o CI usam o Redis 8. O que o CI prova a mais: o mesmo conjunto contra o Redis 8, e o teste `C39 rateLimitHit counts two hits at the same instant twice` no job `backend-node-tests` (que tem Redis).
 - Item 4 (macOS por arquitetura): a forma do workflow e do builder é provada (`release-workflow.test.ts`); o build x64 em `macos-15-intel` e o arm64 em `macos-latest`, o addon `argon2-darwin-x64` dentro do pacote x64 e o modo local funcionando nele só o job de release prova (precisa dos segredos de assinatura e do runner Intel).
+- Rodada 2 (j): o zip inteiro é lido para a memória e o teto de 1 GiB descomprimido pode chegar perto desse valor mais o arquivo comprimido e o dump em texto (pico acima de 1 GiB); registrado, não reduzido.
+- Rodada 2: a recuperação do import depende de o PostgreSQL embutido (PGlite) recuperar uma transação interrompida ao reabrir; o teste com SIGKILL prova o caso em macOS aqui e em Linux no CI (`npm test` do `desktop-checks`), não em Windows, onde o rename de pastas abertas por outro processo pode falhar.
 - D26c - Windows e Linux só no job de CI; o `launchArgs` já acrescenta `--no-sandbox` em Linux com `CI`.
 - D7a/D7b - a entrega pelo sistema operacional (macOS `open launchkit://...` com o app instalado, o registro do esquema em Windows e Linux) não é exercida: o `open-url` é emitido por `app.emit` no processo principal e o `second-instance` é um segundo processo com o link no argv. Prova o tratamento do evento, não o registro real no sistema; `setAsDefaultProtocolClient` e `protocols` são conferidos como configuração (D7c).
 - D16 - "sem rede" é a resolução de nomes bloqueada fora de loopback (`--host-resolver-rules`) mais a ausência de conexões de saída do processo do backend (`lsof`); a interface de rede não é desligada.
@@ -381,3 +391,9 @@ Corte (slices inteiras, nunca no meio):
 - Mutantes mortos: Z2 (CRC e tamanho removidos de `readZip`: `zip.test.ts` fica vermelho em cada um), I1 (`ipcMain.handle(IPC.startLocal, ...)` no lugar de `trustedHandle`: `ipc.test.ts` fica vermelho), R1 (membro único revertido: `expected 1 to be 2`, com Redis; o `redis-store.ts` é idêntico ao commit `1ba3483` da task 1), D9a (nonce expirado: `now() < flow.expiresAt` removido; já usado: `pending = null` removido; os dois deixam o proof nomeado vermelho).
 - Precisão: D6 agora afirma sobre `contracts/openapi.json` (mutante `redirect_targetX` vermelho); comentário `thirteen members` corrigido; o proof do log prova o valor do token.
 - Regressão final da rodada 1: os 98 comandos de proof (D1 a D27, mais as linhas novas) passaram, `contracts` completo nas duas stacks, desktop 140 testes unitários + 50 de Playwright sequenciais, frontend 482, backend-node 100 (com Redis), lint, typecheck, `check:web-bundle` e `test_changes.py` limpos. Mudança em `.github/`: só `workflows/desktop-release.yml` (matriz `include` por arquitetura, `${{ matrix.electron_args }}` no `electron-builder`). Só o CI prova: Redis 8, build x64 em `macos-15-intel`, Windows e Linux (D26c).
+
+### Correções do Verifier (rodada 2)
+
+- Altos 1 e 2: o restore não entrega mais texto do arquivo ao motor SQL (gramática fechada, allowlist de tabelas e colunas do catálogo, INSERT parametrizado, transação). Vermelho: os ataques da tabela (`CR` em comentário, `pg_*`, `ON CONFLICT`, `RETURNING`, sem `CASCADE`, cabeçalho de comentário) e o mutante de inverter a ordem (texto antes dos usuários) agora derrubam `survives the round 2 attacks` e `judges the text of the dump…`. Verde depois.
+- Alto 3: journal + marcador `launchkit_internal.imports` + `recoverImport` no start; `check` antes de qualquer escrita; `import-old` nunca apagado sem sucesso. Vermelho: harness com a recuperação desligada derruba 7 dos 9 testes de SIGKILL; `rmSync(previous)` incondicional derruba `keeps an unsettled import-old…`. Verde com a recuperação.
+- (a) `maxEntries`: `refuses an archive with more entries than the limit` (mutante: checagem removida, vermelho). (b) segmento `.`: coberto na tabela de nomes. (c) `release-workflow.test.ts` fixa os quatro runners por flag exata. (d) limpeza do staging (escrita falha) e do `import-old` (sucesso) testadas. (e) `.pending.tmp` removido na hora quando a cópia falha (mutante vermelho). (f) a linha "nonce diferente" entrou no proof nomeado de D9a. (g) `desktop_nonce` `[A-Za-z0-9_-]{32,128}` nas duas stacks (vermelho nas duas, verde depois). (h) o teste estático de `trustedHandle` recusa qualquer menção a `ipcMain` fora do import e de `trustedHandle(ipcMain, ` (alias vira vermelho). (i) nomes reservados do Windows, ponto/espaço final e colisão por caixa recusados. (j) registrado em Local proof limits.

@@ -7,7 +7,12 @@ interface Deps {
   strings: TransferStrings
   userData: string
   appVersion: string
-  backend: { dump(): Promise<DataDump>; restore(dump: DataDump): Promise<RestoreResult> }
+  backend: {
+    dump(): Promise<DataDump>
+    restore(dump: DataDump, importId: string): Promise<RestoreResult>
+    check(dump: DataDump): Promise<RestoreResult>
+    hasImport(importId: string): Promise<boolean>
+  }
   /** Save and open dialogs, and a message box; each returns what the user chose. */
   chooseSavePath: (defaultPath: string) => Promise<string | null>
   chooseOpenPath: () => Promise<string | null>
@@ -53,7 +58,14 @@ export function createTransfer(deps: Deps) {
       if (!confirmed) return
       let result
       try {
-        result = await importData({ source, filesDir, restore: (dump) => deps.backend.restore(dump) })
+        result = await importData({
+          source,
+          filesDir,
+          userData: deps.userData,
+          check: (dump) => deps.backend.check(dump),
+          restore: (dump, id) => deps.backend.restore(dump, id),
+          hasImport: (id) => deps.backend.hasImport(id),
+        })
       } catch {
         await deps.message({ kind: 'error', text: deps.strings.importFailed })
         return

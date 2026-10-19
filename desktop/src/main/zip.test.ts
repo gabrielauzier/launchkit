@@ -78,11 +78,25 @@ describe('zip', () => {
       ['file and folder', ['files/a', 'files/a/b']],
       ['folder and file', ['files/a/b', 'files/a']],
       ['backslash', ['files\\x']],
+      ['dot segment', ['files/./x']],
+      ['case collision', ['files/Readme', 'files/README']],
+      ['folder and file by case', ['files/A/b', 'files/a']],
+      ['reserved', ['files/CON']],
+      ['reserved with extension', ['files/aux.txt']],
+      ['numbered device', ['files/com1']],
+      ['trailing dot', ['files/a.']],
+      ['trailing space', ['files/a ']],
       ['parent', ['files/../x']],
       ['absolute', ['/etc/x']],
     ]
     for (const [label, names] of bad) {
       expect(() => readZip(writeZip(names.map((name) => entry(name)))), label).toThrow(ZipError)
     }
+  })
+
+  it('refuses an archive with more entries than the limit', () => {
+    const zip = writeZip([entry('a'), entry('b'), entry('c')])
+    expect(() => readZip(zip, { maxEntries: 2 })).toThrow(/too many/)
+    expect(readZip(zip, { maxEntries: 3 })).toHaveLength(3)
   })
 })

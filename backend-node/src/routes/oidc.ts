@@ -19,6 +19,8 @@ const EXISTING_USER_LINK_MODES = ['disabled', 'verified_email', 'email']
 const REQUEST_TIMEOUT_MS = 10_000
 const DESKTOP_NONCE_MIN_LENGTH = 32
 const DESKTOP_NONCE_MAX_LENGTH = 128
+// base64url, what the app generates: keeps Python's len() and JS .length from disagreeing on non-ASCII.
+const DESKTOP_NONCE_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${DESKTOP_NONCE_MIN_LENGTH},${DESKTOP_NONCE_MAX_LENGTH}}$`)
 
 type Json = Record<string, unknown>
 
@@ -270,11 +272,7 @@ export function oidcRoutes(ctx: AppContext) {
       if (redirectTarget !== undefined) {
         if (!config.oidcDesktopRedirects.includes(redirectTarget)) throw new HttpError(400, 'Invalid redirect_target')
         // The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if (
-          desktopNonce === undefined ||
-          desktopNonce.length < DESKTOP_NONCE_MIN_LENGTH ||
-          desktopNonce.length > DESKTOP_NONCE_MAX_LENGTH
-        ) {
+        if (desktopNonce === undefined || !DESKTOP_NONCE_PATTERN.test(desktopNonce)) {
           throw new HttpError(400, 'Invalid desktop_nonce')
         }
       }

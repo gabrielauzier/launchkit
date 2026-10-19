@@ -145,6 +145,20 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
     expect(afterOk.length).toBe(before.length + 1)
   })
 
+  it('D4 rejects a desktop_nonce that is not base64url', async () => {
+    const before = await stateKeys()
+    // Non-ASCII counts differently in Python (code points) and Node (UTF-16 units): only [A-Za-z0-9_-] is a nonce.
+    for (const nonce of ['é'.repeat(32), '😀'.repeat(32), `${'x'.repeat(31)}+`, `${'x'.repeat(31)}/`, `${'x'.repeat(31)}=`, `${'x'.repeat(31)} `, `${'x'.repeat(31)}.`]) {
+      const reply = await login(api, DESKTOP, nonce)
+      expect(reply.status, nonce).toBe(400)
+      expect(reply.json).toEqual({ detail: 'Invalid desktop_nonce' })
+      expect(reply.headers.get('location')).toBeNull()
+    }
+    expect(await stateKeys()).toEqual(before)
+    const ok = await login(api, DESKTOP, `${'A'.repeat(20)}-_${'z'.repeat(10)}09`)
+    expect(ok.status).toBe(307)
+  })
+
   it('D4 rejects an invalid redirect_target before it looks at the desktop_nonce', async () => {
     const reply = await login(api, 'https://evil.example/cb', null)
     expect(reply.status).toBe(400)

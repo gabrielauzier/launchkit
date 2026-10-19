@@ -10,7 +10,7 @@ import { type JobLogger, registerJobs } from '../jobs.ts'
 import { InProcessQueue } from '../ports/in-process-queue.ts'
 import { LocalStorageProvider } from '../ports/local-storage.ts'
 import { MemoryStore } from '../ports/memory-store.ts'
-import { type DataDump, dumpData, restoreData } from './data-transfer.ts'
+import { type DataDump, checkDump, dumpData, hasImport, restoreData } from './data-transfer.ts'
 import { requireLocalToken } from './token-guard.ts'
 
 export interface LocalServerOptions {
@@ -37,7 +37,11 @@ export interface LocalServer {
   /** A data-only dump of the database (the desktop app's export). */
   dump(): Promise<DataDump>
   /** Restores a dump into a database without users; throws `NotANewInstallationError` or `InvalidDumpError`. */
-  restore(dump: DataDump): Promise<void>
+  restore(dump: DataDump, importId?: string): Promise<void>
+  /** The refusals of `restore` without changing anything. */
+  check(dump: DataDump): Promise<void>
+  /** Whether the import with this id committed. */
+  hasImport(id: string): Promise<boolean>
   close(): Promise<void>
 }
 
@@ -117,7 +121,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     ctx,
     migrationsApplied,
     dump: () => dumpData(pglite),
-    restore: (dump) => restoreData(pglite, dump),
+    restore: (dump, importId) => restoreData(pglite, dump, importId),
+    check: async (dump) => void (await checkDump(pglite, dump)),
+    hasImport: (id) => hasImport(pglite, id),
     close: async () => {
       await app.close()
       await jobQueue.close()

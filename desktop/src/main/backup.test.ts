@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -174,4 +174,24 @@ describe('migration backups', () => {
     expect(seenAtRun).toBe(original)
     expect(backups()).toEqual([])
   })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('removes the half-made copy at once when the copy fails and leaves db alone', async () => {
+    seedDatabase()
+    const unreadable = path.join(dbDir(), 'base', 'rel-2')
+    writeFileSync(unreadable, 'secret')
+    chmodSync(unreadable, 0o000)
+    try {
+      const before = checksumDirNoRead()
+      await expect(startWithBackup({ userData, run: async () => ({ migrationsApplied: 0 }) })).rejects.toThrow()
+      expect(existsSync(path.join(userData, 'backups', '.pending.tmp'))).toBe(false)
+      expect(existsSync(path.join(userData, 'backups', '.pending'))).toBe(false)
+      expect(readdirSync(path.join(dbDir(), 'base')).sort()).toEqual(before)
+    } finally {
+      chmodSync(unreadable, 0o600)
+    }
+  })
 })
+
+function checksumDirNoRead(): string[] {
+  return readdirSync(path.join(dbDir(), 'base')).sort()
+}

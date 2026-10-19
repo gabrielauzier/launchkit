@@ -15,5 +15,6 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true
   },
+  "exclude": ["scripts/import-crash-harness.ts"],
   "include": ["src", "e2e", "scripts", "electron.vite.config.mts", "playwright.config.mts", "vitest.config.mts"]
 }

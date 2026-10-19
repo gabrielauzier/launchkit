@@ -16,6 +16,7 @@ import { createServerConnection } from './server-connection'
 import { createSsoFlow } from './sso-flow'
 import { setupSingleInstance } from './single-instance'
 import { createSwitchServer } from './switch-server'
+import { recoverImport } from './export-import'
 import { createTransfer } from './transfer'
 import { createUpdater } from './updater'
 import { createMainWindow } from './window'
@@ -66,7 +67,14 @@ function start() {
     const startLocal = () => {
       localStart ??= localBackend
         .start()
-        .then(() => {
+        .then(async () => {
+          // An import a crash interrupted is finished or undone before anything uses the data.
+          try {
+            await recoverImport({ userData, filesDir: path.join(userData, 'files'), hasImport: (id) => localBackend.hasImport(id) })
+          } catch (error) {
+            await localBackend.stop()
+            throw error
+          }
           store.setMode('local')
           installMenu()
           return { ok: true }
