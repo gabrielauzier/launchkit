@@ -3,7 +3,7 @@
 // C14 honours ONLY_STACK=python|node (the CI matrix runs one stack per job).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,6 +12,9 @@ import { ROOT } from './lib.mjs'
 const SCOPE = ['docker-compose.yml', 'docker-compose.prod.yml', 'compose', '.github', 'charts', 'README.md', 'CONTRIBUTING.md', 'mise.toml', 'renovate.json', '.pre-commit-config.yaml']
 const PYTHON_WORDS = 'celery|alembic|uvicorn|pytest|ruff'
 const NODE_WORDS = 'fastify|drizzle|bullmq'
+// Pinned so a local run and the CI run use the same tools.
+export const HELM_IMAGE = 'alpine/helm:4.3.0'
+export const ACTIONLINT_IMAGE = 'rhysd/actionlint:1.7.12'
 
 function copy() {
   const dir = mkdtempSync(join(tmpdir(), 't02-select-'))
@@ -66,9 +69,13 @@ for (const stack of ['python', 'node']) {
     assert.equal(compose.status, 0, compose.stderr)
     const prod = spawnSync('docker', ['compose', '-f', 'docker-compose.prod.yml', 'config', '-q'], { cwd: dir, env, encoding: 'utf8' })
     assert.equal(prod.status, 0, prod.stderr)
-    const lint = docker(dir, 'alpine/helm', ['lint', 'charts/launchkit'])
+    // The CI job runs on a copy without usable git metadata: actionlint refuses to look for
+    // workflows then ("no project was found"), so nothing below may depend on .git.
+    rmSync(join(dir, '.git'), { recursive: true, force: true })
+    const lint = docker(dir, HELM_IMAGE, ['lint', 'charts/launchkit'])
     assert.equal(lint.status, 0, lint.stdout + lint.stderr)
-    const actionlint = docker(dir, 'rhysd/actionlint', [])
+    const workflows = readdirSync(join(dir, '.github/workflows')).map((name) => `.github/workflows/${name}`)
+    const actionlint = docker(dir, ACTIONLINT_IMAGE, workflows)
     assert.equal(actionlint.status, 0, actionlint.stdout + actionlint.stderr)
     for (const file of ['test_changes.py', 'test_workflow_jobs.py']) {
       const py = spawnSync('python3', [`.github/ci/${file}`], { cwd: dir, encoding: 'utf8' })

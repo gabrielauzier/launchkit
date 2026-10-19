@@ -19,13 +19,13 @@ Decisões do usuário (fora de `.tasks`): o registry de `launchkit-backend-node`
 
 ## Proof environment
 
-Docker 28 / Compose v2.34, sem `helm` nem `actionlint` locais: `docker run --rm -v "$PWD":/w -w /w alpine/helm` e `rhysd/actionlint`. Todo projeto Compose de teste usa `-p t02-<caso>` e portas de host livres sorteadas pelo teste; o teste derruba o projeto (`down -v`) no `after`. Proofs de Compose/Helm/install/select-stack são `node:test` em `scripts/stack/` (um arquivo por assunto; o título de cada caso começa com o id, `C1 ...`):
+Docker 28 / Compose v2.34, sem `helm` nem `actionlint` locais: `docker run --rm -v "$PWD":/w -w /w alpine/helm:4.3.0` e `rhysd/actionlint:1.7.12 .github/workflows/*.yml` (versões fixas; arquivos passados explicitamente porque o actionlint sem argumentos exige um repositório Git e falha com exit 3 numa cópia sem `.git`). Todo projeto Compose de teste usa `-p t02-<caso>` e portas de host livres sorteadas pelo teste; o teste derruba o projeto (`down -v`) no `after`. Proofs de Compose/Helm/install/select-stack são `node:test` em `scripts/stack/` (um arquivo por assunto; o título de cada caso começa com o id, `C1 ...`):
 
 ```
 node --test --test-name-pattern='^C1 ' scripts/stack/stack.test.mjs
 ```
 
-Proofs do CI de PR: `python3 .github/ci/test_changes.py`, `python3 .github/ci/test_workflow_jobs.py`, `docker run --rm -v "$PWD":/w -w /w rhysd/actionlint`.
+Proofs do CI de PR: `python3 .github/ci/test_changes.py`, `python3 .github/ci/test_workflow_jobs.py`, `docker run --rm -v "$PWD":/w -w /w rhysd/actionlint:1.7.12 .github/workflows/ci.yml .github/workflows/release.yml`.
 
 ## Local proof limits
 
@@ -63,7 +63,7 @@ Proof: `node --test --test-name-pattern='^C9 ' scripts/stack/helm.test.mjs` (ren
 
 **C10** - `release.yml` publica `launchkit-backend-node` além de `launchkit-backend` e `launchkit-frontend`
 Proof: `python3 .github/ci/test_workflow_jobs.py ReleaseWorkflowTest.test_publishes_three_images` (3 imagens `launchkit-backend`, `launchkit-backend-node`, `launchkit-frontend` nos blocos de metadata, e o job Node usa `context: ./backend-node`)
-Proof: `docker run --rm -v "$PWD":/w -w /w rhysd/actionlint` (0 erros em `.github/workflows/`)
+Proof: `docker run --rm -v "$PWD":/w -w /w rhysd/actionlint:1.7.12 .github/workflows/ci.yml .github/workflows/release.yml` (0 erros em `.github/workflows/`)
 CI-only: a publicação em si só ocorre numa release do GitHub.
 
 **C11** - `install.sh --stack node` grava `BACKEND_STACK=node` no `.env` e baixa `launchkit-backend-node`; sem `--stack` é o de hoje (`python`); `--stack go` sai com 2 e lista `python` e `node`

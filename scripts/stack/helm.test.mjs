@@ -12,7 +12,7 @@ import { ROOT, sh } from './lib.mjs'
 const BASELINE_COMMIT = '91cc000'
 
 function helm(dir, ...args) {
-  return execFileSync('docker', ['run', '--rm', '-v', `${dir}:/w`, '-w', '/w', 'alpine/helm', ...args], { encoding: 'utf8' })
+  return execFileSync('docker', ['run', '--rm', '-v', `${dir}:/w`, '-w', '/w', 'alpine/helm:4.3.0', ...args], { encoding: 'utf8' })
 }
 
 test('C8 backend.stack=node renders the Node image and commands, no celery or alembic, and lints', () => {
