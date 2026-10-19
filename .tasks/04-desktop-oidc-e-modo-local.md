@@ -73,6 +73,7 @@ stateDiagram-v2
 ## Out of scope
 
 - Passkeys no desktop - o WebAuthn no Electron tem suporte limitado.
+- O modo local num projeto que escolheu só a stack Python (`select-stack --stack python`): o desktop fica como cliente remoto, sem backend embutido (decisão do usuário; ver critério 13 da task 02).
 - Sincronização entre o modo local e um servidor - complexidade própria; a saída do modo local é exportar e importar.
 - Backend Python embutido (PyInstaller) - binário pesado, assinatura complexa no macOS e ainda exigiria PostgreSQL local.
 - PostgreSQL embutido como binário por sistema - PGlite cobre o caso monousuário sem binários nativos.
