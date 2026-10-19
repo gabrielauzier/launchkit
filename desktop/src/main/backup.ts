@@ -25,18 +25,31 @@ async function prune(backupsDir: string): Promise<void> {
 /**
  * Copies the database before anything opens it (opening already rewrites files), runs the backend,
  * and keeps the copy as `backups/db-<ISO>` only if migrations ran. If the backend fails the copy is
- * put back over `db`, so the failed start leaves the database exactly as it was.
+ * put back over `db`, so the failed start leaves the database exactly as it was. The copy
+ * (`backups/.pending`) is only promoted or deleted after the backend started; if the process dies
+ * first, the next start finds it and begins from it.
  */
 export async function startWithBackup<T>({ userData, run, now = Date.now }: Options<T>): Promise<T & { migrationsApplied: number }> {
   const dbDir = path.join(userData, 'db')
   const backupsDir = path.join(userData, 'backups')
   const pending = path.join(backupsDir, '.pending')
-  const hadDatabase = existsSync(dbDir)
+  const partial = `${pending}.tmp`
+  // A `.pending` left by an earlier start is the good copy of a migration that never finished.
+  const leftover = existsSync(pending)
+  const hadDatabase = leftover || existsSync(dbDir)
 
   if (hadDatabase) {
     await mkdir(backupsDir, { recursive: true })
-    await rm(pending, { recursive: true, force: true })
-    await cp(dbDir, pending, { recursive: true })
+    // A copy that was interrupted is not a backup; `db` was not touched while it was made.
+    await rm(partial, { recursive: true, force: true })
+    if (leftover) {
+      // The previous start died (or failed) with `db` half migrated: begin again from the good copy.
+      await rm(dbDir, { recursive: true, force: true })
+      await cp(pending, dbDir, { recursive: true })
+    } else {
+      await cp(dbDir, partial, { recursive: true })
+      await rename(partial, pending)
+    }
   }
 
   let result: T & { migrationsApplied: number }

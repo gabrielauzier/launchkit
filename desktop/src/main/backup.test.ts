@@ -102,4 +102,76 @@ describe('migration backups', () => {
     ).rejects.toThrow('boom')
     expect(existsSync(dbDir())).toBe(false)
   })
+
+  it('restores the database from the pending copy when the app died in the middle of a migration', async () => {
+    seedDatabase()
+    const original = checksumDir(dbDir())
+    // First start: the migration half-changes the database and the process dies (run never settles).
+    void startWithBackup({
+      userData,
+      run: () => {
+        writeFileSync(path.join(dbDir(), 'base', 'rel-1'), 'half migrated')
+        writeFileSync(path.join(dbDir(), 'base', 'rel-2'), 'new table')
+        return new Promise(() => undefined)
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(checksumDir(dbDir())).not.toBe(original)
+
+    // Second start: sees what the first one left and must begin from the good copy.
+    let seenAtRun = ''
+    await startWithBackup({
+      userData,
+      now: () => Date.UTC(2026, 9, 16, 12, 0, 0, 0),
+      run: async () => {
+        seenAtRun = checksumDir(dbDir())
+        return { migrationsApplied: 1 }
+      },
+    })
+    expect(seenAtRun).toBe(original)
+    // The good copy was kept as this migration's backup, not deleted.
+    expect(backups().filter((name) => ISO_NAME.test(name))).toHaveLength(1)
+    expect(checksumDir(path.join(userData, 'backups', backups().find((name) => ISO_NAME.test(name))!))).toBe(original)
+    expect(backups()).not.toContain('.pending')
+  })
+
+  it('puts the pending copy back when the restarted migration fails too', async () => {
+    seedDatabase()
+    const original = checksumDir(dbDir())
+    void startWithBackup({
+      userData,
+      run: () => {
+        writeFileSync(path.join(dbDir(), 'base', 'rel-1'), 'half migrated')
+        return new Promise(() => undefined)
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await expect(
+      startWithBackup({
+        userData,
+        run: async () => {
+          writeFileSync(path.join(dbDir(), 'base', 'rel-1'), 'broken again')
+          throw new Error('migration failed')
+        },
+      }),
+    ).rejects.toThrow('migration failed')
+    expect(checksumDir(dbDir())).toBe(original)
+  })
+
+  it('ignores a pending copy that was only half written', async () => {
+    seedDatabase()
+    const original = checksumDir(dbDir())
+    mkdirSync(path.join(userData, 'backups', '.pending.tmp', 'base'), { recursive: true })
+    writeFileSync(path.join(userData, 'backups', '.pending.tmp', 'PG_VERSION'), '17')
+    let seenAtRun = ''
+    await startWithBackup({
+      userData,
+      run: async () => {
+        seenAtRun = checksumDir(dbDir())
+        return { migrationsApplied: 0 }
+      },
+    })
+    expect(seenAtRun).toBe(original)
+    expect(backups()).toEqual([])
+  })
 })
