@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/pglite'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Database } from '../../src/db/client.ts'
 import { applyMigrations } from '../../src/db/migrate.ts'
-import { InvalidDumpError, NotANewInstallationError, dumpData, restoreData } from '../../src/local/data-transfer.ts'
+import { InvalidDumpError, NotANewInstallationError, dumpData, hasImport, restoreData } from '../../src/local/data-transfer.ts'
 
 const open: PGlite[] = []
 
@@ -129,6 +129,11 @@ describe('data transfer', () => {
       ['block comment', `/* x */ ${U}`],
       ['comment header', `-- launchkit data dump\n${U}`],
       ['tab', `TRUNCATE\t"users" CASCADE;\n`],
+      ['CRLF after truncate', `TRUNCATE "users" CASCADE;\r\n`],
+      ['CR after truncate', `TRUNCATE "users" CASCADE;\r`],
+      ['CR inside truncate', `TRUNCATE "users"\r CASCADE;\n`],
+      ['CRLF after insert', U.replace(');\n', ');\r\n')],
+      ['CR inside insert', U.replace(') VALUES (', ')\rVALUES (')],
       ['control character', `TRUNCATE "users"\u0001 CASCADE;\n`],
       ['truncate pg_class', `TRUNCATE "pg_class" CASCADE;\n`],
       ['truncate pg_catalog.pg_class', `TRUNCATE "pg_catalog"."pg_class" CASCADE;\n`],
@@ -205,5 +210,40 @@ describe('data transfer', () => {
   it('writes a dump with no comment line', async () => {
     const dump = await dumpData(await fresh())
     expect(dump.sql).not.toMatch(/--|\/\*|\r/)
+  })
+
+  it('rolls back a dump that the database refuses halfway, whatever the reason', async () => {
+    const USER2 = (id: string, email = "'b@c.d'") =>
+      `INSERT INTO "users" ("id", "email", "hashed_password", "is_active", "is_superuser", "is_verified", "is_2fa_enabled") VALUES ('${id}', ${email}, 'x', 'true', 'false', 'true', 'false');\n`
+    const id1 = '11111111-1111-1111-1111-111111111111'
+    const id2 = '22222222-2222-2222-2222-222222222222'
+    const WS = (user: string) => `INSERT INTO "workspaces" ("id", "name", "created_by_user_id", "is_archived", "created_at") VALUES ('33333333-3333-3333-3333-333333333333', 'n', '${user}', 'false', '2026-01-01');\n`
+    const failing: Array<[string, string]> = [
+      ['foreign key', `${USER2(id1)}${WS('99999999-9999-9999-9999-999999999999')}`],
+      ['duplicate primary key', `${USER2(id1)}${USER2(id1, "'other@c.d'")}`],
+      ['duplicate unique email', `${USER2(id1)}${USER2(id2)}`],
+      ['not null', `${USER2(id1)}${USER2(id2, 'NULL')}`],
+      ['invalid uuid', `${USER2(id1)}${USER2('not-a-uuid')}`],
+      ['truncate then a failing insert', `TRUNCATE "users" CASCADE;\n${USER2(id1)}${USER2('not-a-uuid')}`],
+    ]
+    const target = await fresh()
+    const before = await fingerprint(target)
+    for (const [label, text] of failing) {
+      await expect(restoreData(target, { schemaRevision: 1, sql: text }), label).rejects.toBeInstanceOf(InvalidDumpError)
+      expect(await fingerprint(target), label).toEqual(before)
+    }
+    // The marker of a failed restore is not left behind either.
+    expect(await hasImport(target, 'unmarked')).toBe(false)
+  })
+
+  it('answers "no" only when the marker table does not exist, and fails closed on any other error', async () => {
+    const client = await fresh()
+    expect(await hasImport(client, 'x')).toBe(false)
+    await restoreData(client, { schemaRevision: 1, sql: '' }, 'x')
+    expect(await hasImport(client, 'x')).toBe(true)
+    expect(await hasImport(client, 'y')).toBe(false)
+    await client.close()
+    open.splice(open.indexOf(client), 1)
+    await expect(hasImport(client, 'x')).rejects.toThrow()
   })
 })

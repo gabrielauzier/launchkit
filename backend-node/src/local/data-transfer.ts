@@ -84,7 +84,7 @@ export async function dumpData(client: PGlite): Promise<DataDump> {
   return { sql: `${lines.join('\n')}\n`, schemaRevision: await schemaRevision(client) }
 }
 
-type Statement =
+export type Statement =
   | { kind: 'truncate'; tables: string[] }
   | { kind: 'insert'; table: string; columns: string[]; values: Array<string | null> }
 
@@ -200,8 +200,11 @@ export async function hasImport(client: PGlite, id: string): Promise<boolean> {
   try {
     const result = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "launchkit_internal"."imports" WHERE "id" = $1', [id])
     return (result.rows[0]?.n ?? 0) > 0
-  } catch {
-    return false
+  } catch (error) {
+    // "No marker table yet" is a real answer (no import ever committed); anything else means "could not ask".
+    const code = (error as { code?: string }).code
+    if (code === '42P01' || code === '3F000') return false
+    throw error
   }
 }
 
@@ -210,16 +213,17 @@ export async function hasImport(client: PGlite, id: string): Promise<boolean> {
  * allowlisted tables and parameterised INSERTs, plus the import marker. Refuses a dump that is not
  * the grammar above or comes from a newer schema; either leaves the database as it was.
  */
-export async function restoreData(client: PGlite, dump: DataDump, importId = 'unmarked', hooks: { beforeCommit?: () => void } = {}): Promise<void> {
+export async function restoreData(client: PGlite, dump: DataDump, importId = 'unmarked', hooks: { beforeCommit?: () => void; afterStatement?: (index: number, statement: Statement) => void } = {}): Promise<void> {
   const statements = await checkDump(client, dump)
   try {
     await client.transaction(async (tx) => {
-      for (const statement of statements) {
+      for (const [index, statement] of statements.entries()) {
         if (statement.kind === 'truncate') await tx.query(`TRUNCATE ${statement.tables.map(quoted).join(', ')} CASCADE`)
         else {
           const placeholders = statement.values.map((_, index) => `$${index + 1}`).join(', ')
           await tx.query(`INSERT INTO ${quoted(statement.table)} (${statement.columns.map(quoted).join(', ')}) VALUES (${placeholders})`, statement.values)
         }
+        hooks.afterStatement?.(index, statement)
       }
       await tx.query('CREATE SCHEMA IF NOT EXISTS "launchkit_internal"')
       await tx.query('CREATE TABLE IF NOT EXISTS "launchkit_internal"."imports" ("id" text PRIMARY KEY)')
