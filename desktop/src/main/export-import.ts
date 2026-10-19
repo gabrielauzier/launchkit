@@ -43,7 +43,7 @@ export async function exportData(options: { dump: () => Promise<DataDump>; files
   renameSync(temporary, options.target)
 }
 
-export type ImportResult = { ok: true } | { ok: false; reason: 'invalid' | 'not-new' }
+export type ImportResult = { ok: true; warning?: 'cleanup' } | { ok: false; reason: 'invalid' | 'not-new' }
 
 /** Reads and checks the archive without touching anything; null when it is not a valid export. */
 function parseExport(source: string): { manifest: Manifest; sql: string; files: ZipEntry[] } | null {
@@ -65,6 +65,22 @@ function parseExport(source: string): { manifest: Manifest; sql: string; files: 
   }
   if (manifest.formatVersion !== FORMAT_VERSION || !Number.isInteger(manifest.schemaRevision)) return null
   return { manifest, sql: dbEntry.data.toString('utf8'), files: entries.filter((entry) => entry.name.startsWith('files/') && !entry.name.endsWith('/')) }
+}
+
+/** The import's journal cannot be read: the recovery cannot tell which side of the import the data is on. */
+export class ImportJournalError extends Error {
+  constructor(readonly file: string) {
+    super(`the import journal ${file} cannot be read`)
+    this.name = 'ImportJournalError'
+  }
+}
+
+/** The import failed and the folders could not be put back: the app must restart so the recovery runs before any use. */
+export class ImportUnsettledError extends Error {
+  constructor(cause: unknown) {
+    super(`the import could not be undone: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'ImportUnsettledError'
+  }
 }
 
 export interface ImportHooks {
@@ -120,12 +136,14 @@ function settle(filesDir: string, journalFile: string, journal: Journal, committ
  */
 export async function recoverImport(options: { userData: string; filesDir: string; hasImport: (id: string) => Promise<boolean> }): Promise<void> {
   const journalFile = path.join(options.userData, JOURNAL)
+  // A kill between writing and renaming the journal leaves this behind; it was never the journal.
+  rmSync(`${journalFile}.tmp`, { force: true })
   if (!existsSync(journalFile)) {
     rmSync(names(options.filesDir).staging, { recursive: true, force: true })
     return
   }
   const journal = readJournal(journalFile)
-  if (!journal) throw new Error('the import journal cannot be read')
+  if (!journal) throw new ImportJournalError(journalFile)
   settle(options.filesDir, journalFile, journal, await options.hasImport(journal.id))
 }
 
@@ -175,15 +193,30 @@ export async function importData(options: {
   await at('staged')
 
   const journal: Journal = { id: randomUUID(), hadFiles: existsSync(options.filesDir) }
-  mkdirSync(options.userData, { recursive: true })
-  writeFileSync(`${journalFile}.tmp`, JSON.stringify(journal))
-  renameSync(`${journalFile}.tmp`, journalFile)
-  await at('journaled')
+  // From the journal on, any failure puts the folders back at once; if even that fails, the app restarts
+  // (the recovery runs before anything can write to a half-swapped state).
+  const undo = (cause: unknown, committed: boolean): never => {
+    try {
+      settle(options.filesDir, journalFile, journal, committed)
+    } catch {
+      throw new ImportUnsettledError(cause)
+    }
+    throw cause
+  }
+  try {
+    mkdirSync(options.userData, { recursive: true })
+    writeFileSync(`${journalFile}.tmp`, JSON.stringify(journal))
+    renameSync(`${journalFile}.tmp`, journalFile)
+    await at('journaled')
 
-  if (journal.hadFiles) renameSync(options.filesDir, previous)
-  await at('mid-swap')
-  renameSync(staging, options.filesDir)
-  await at('swapped')
+    if (journal.hadFiles) renameSync(options.filesDir, previous)
+    await at('mid-swap')
+    renameSync(staging, options.filesDir)
+    await at('swapped')
+  } catch (error) {
+    rmSync(`${journalFile}.tmp`, { force: true })
+    return undo(error, false)
+  }
 
   let restored: RestoreResult
   try {
@@ -191,16 +224,30 @@ export async function importData(options: {
     restored = await options.restore(dump, journal.id)
   } catch (error) {
     // Unknown whether the commit happened: ask the database; if it cannot answer, recovery decides at the next start.
-    const committed = await options.hasImport(journal.id)
-    settle(options.filesDir, journalFile, journal, committed)
-    throw error
+    let committed: boolean
+    try {
+      committed = await options.hasImport(journal.id)
+    } catch {
+      throw new ImportUnsettledError(error)
+    }
+    return undo(error, committed)
   }
   if (!restored.ok) {
-    settle(options.filesDir, journalFile, journal, false)
+    try {
+      settle(options.filesDir, journalFile, journal, false)
+    } catch (error) {
+      throw new ImportUnsettledError(error)
+    }
     return { ok: false, reason: restored.reason === 'has-users' ? 'not-new' : 'invalid' }
   }
   await at('committed')
-  settle(options.filesDir, journalFile, journal, true)
+  // The database is imported either way: a cleanup that fails is reported, not turned into a failed import,
+  // and the journal that is left is closed by the recovery at the next start.
+  try {
+    settle(options.filesDir, journalFile, journal, true)
+  } catch {
+    return { ok: true, warning: 'cleanup' }
+  }
   await at('cleaned')
   return { ok: true }
 }

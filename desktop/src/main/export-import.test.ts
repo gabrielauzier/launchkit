@@ -1,30 +1,41 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exportData, importData, recoverImport, type ImportHooks } from './export-import'
+import { ImportJournalError, ImportUnsettledError, exportData, importData, recoverImport, type ImportHooks } from './export-import'
 import type { RestoreResult } from './local-backend'
 import { readZip, writeZip } from './zip'
 import { checksumDir } from './test-support'
 
-// Lets one test make the next write fail, to see what the importer leaves behind.
-const failWrites = vi.hoisted(() => ({ after: -1 }))
+// Counts the fs operations the importer and the recovery perform and can make the n-th one throw,
+// to see what a failure (or a death) at each step leaves behind.
+const faults = vi.hoisted(() => ({ failAt: -1, count: 0, after: -1 }))
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()
+  const guard = <F extends (...args: never[]) => unknown>(fn: F): F =>
+    ((...args: Parameters<F>) => {
+      faults.count++
+      if (faults.failAt === faults.count) throw new Error('injected fs failure')
+      if (faults.after === 0) throw new Error('disk full')
+      if (faults.after > 0) faults.after--
+      return fn(...args)
+    }) as F
   return {
     ...fs,
-    writeFileSync: ((...args: Parameters<typeof fs.writeFileSync>) => {
-      if (failWrites.after === 0) throw new Error('disk full')
-      if (failWrites.after > 0) failWrites.after--
-      return fs.writeFileSync(...args)
-    }) as typeof fs.writeFileSync,
+    writeFileSync: guard(fs.writeFileSync),
+    renameSync: guard(fs.renameSync),
+    mkdirSync: guard(fs.mkdirSync),
+    rmSync: guard(fs.rmSync),
   }
 })
+const failWrites = faults
 
 let root = ''
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'launchkit-export-'))
-  failWrites.after = -1
+  faults.failAt = -1
+  faults.count = 0
+  faults.after = -1
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
@@ -278,5 +289,185 @@ describe('recovering an interrupted import', () => {
     await recoverImport({ userData: path.join(root, 'userData'), filesDir, hasImport: async () => false })
     expect(existsSync(`${filesDir}.import-new`)).toBe(false)
     expect(existsSync(path.join(`${filesDir}.import-old`, 'x'))).toBe(true)
+  })
+})
+
+describe('a failure at each step of the import and of the recovery', () => {
+  const ORIGINAL = { 'old.txt': 'original', 'sub/o.txt': 'o' }
+  const read = (dir: string): Record<string, string> => {
+    const out: Record<string, string> = {}
+    const walk = (current: string) => {
+      for (const name of readdirSync(current).sort()) {
+        const full = path.join(current, name)
+        if (statSync(full).isDirectory()) walk(full)
+        else out[path.relative(dir, full)] = readFileSync(full, 'utf8')
+      }
+    }
+    if (existsSync(dir)) walk(dir)
+    return out
+  }
+  const leftovers = (filesDir: string) => [`${filesDir}.import-old`, `${filesDir}.import-new`, journalOf(), `${journalOf()}.tmp`].filter(existsSync)
+
+  it('never loses what the user does after a failed import (an upload, then the next start)', async () => {
+    const target = await exported({ 'new.txt': 'imported' })
+    const userData = path.join(root, 'userData')
+    const outcomes = new Set<string>()
+    // First a clean run to count the operations, then one failure per operation.
+    let total = 0
+    for (let failAt = -1; failAt <= total; failAt++) {
+      const filesDir = filesWith(ORIGINAL)
+      rmSync(userData, { recursive: true, force: true })
+      let committed = false
+      const backend: Backend = { restore: async () => ((committed = true), OK), hasImport: async () => committed }
+      faults.count = 0
+      faults.failAt = failAt
+      let error: unknown
+      let result
+      try {
+        result = await run(target, filesDir, backend)
+      } catch (caught) {
+        error = caught
+      }
+      faults.failAt = -1
+      if (failAt === -1) total = faults.count
+      const label = `failure at operation ${failAt} of ${total}`
+
+      // The session goes on unless the importer asked for a restart; the user uploads something.
+      const restarts = error instanceof ImportUnsettledError
+      let upload = false
+      if (!restarts && (!result?.ok || result.warning)) {
+        mkdirSync(filesDir, { recursive: true })
+        writeFileSync(path.join(filesDir, 'upload.txt'), 'made after the failure')
+        upload = !committed
+      } else if (!restarts && existsSync(filesDir)) {
+        mkdirSync(filesDir, { recursive: true })
+        writeFileSync(path.join(filesDir, 'upload.txt'), 'made after the import')
+        upload = true
+      }
+
+      // The next start.
+      await recoverImport({ userData, filesDir, hasImport: async () => committed })
+      const after = read(filesDir)
+      outcomes.add(committed ? 'imported' : 'original')
+      if (committed) expect(after['new.txt'], label).toBe('imported')
+      else expect({ ...after, 'upload.txt': undefined }, label).toEqual({ ...ORIGINAL, 'upload.txt': undefined })
+      if (upload) expect(after['upload.txt'], label).toBeDefined()
+      expect(leftovers(filesDir), label).toEqual([])
+    }
+    expect(total).toBeGreaterThan(8)
+    expect([...outcomes].sort()).toEqual(['imported', 'original'])
+  })
+
+  it('a death in the middle of the recovery is finished by the next recovery', async () => {
+    const files = (dir: string, content: Record<string, string>) => {
+      for (const [name, text] of Object.entries(content)) {
+        mkdirSync(path.dirname(path.join(dir, name)), { recursive: true })
+        writeFileSync(path.join(dir, name), text)
+      }
+    }
+    const userData = path.join(root, 'userData')
+    for (const hadFiles of [true, false]) {
+      for (const point of ['journaled', 'mid-swap', 'swapped'] as const) {
+        for (const committed of [false, true]) {
+          if (committed && point !== 'swapped') continue
+          let total = 0
+          for (let failAt = 1; failAt <= total || failAt === 1; failAt++) {
+            rmSync(root, { recursive: true, force: true })
+            mkdirSync(userData, { recursive: true })
+            const filesDir = path.join(root, 'files')
+            if (point === 'journaled') {
+              if (hadFiles) files(filesDir, ORIGINAL)
+              files(`${filesDir}.import-new`, { 'new.txt': 'imported' })
+            } else if (point === 'mid-swap') {
+              if (hadFiles) files(`${filesDir}.import-old`, ORIGINAL)
+              files(`${filesDir}.import-new`, { 'new.txt': 'imported' })
+            } else {
+              if (hadFiles) files(`${filesDir}.import-old`, ORIGINAL)
+              files(filesDir, { 'new.txt': 'imported' })
+            }
+            writeFileSync(journalOf(), JSON.stringify({ id: 'abc', hadFiles }))
+            const label = `${point} hadFiles=${hadFiles} committed=${committed} failAt=${failAt}`
+
+            if (failAt === 1) {
+              // Count the operations of a complete recovery of this layout, on a copy of the state.
+              faults.count = 0
+              faults.failAt = -1
+              const probe = `${root}-probe`
+              rmSync(probe, { recursive: true, force: true })
+              cpSync(root, probe, { recursive: true })
+              const probeFiles = path.join(probe, 'files')
+              const probeUser = path.join(probe, 'userData')
+              faults.count = 0
+              await recoverImport({ userData: probeUser, filesDir: probeFiles, hasImport: async () => committed })
+              total = faults.count
+              rmSync(probe, { recursive: true, force: true })
+            }
+            faults.count = 0
+            faults.failAt = failAt
+            await recoverImport({ userData, filesDir, hasImport: async () => committed }).catch(() => undefined)
+            faults.failAt = -1
+            // The next start, nothing failing: both sides end up before or both after.
+            await recoverImport({ userData, filesDir, hasImport: async () => committed })
+            if (committed) expect(read(filesDir), label).toEqual({ 'new.txt': 'imported' })
+            else if (hadFiles) expect(read(filesDir), label).toEqual(ORIGINAL)
+            else expect(existsSync(filesDir), label).toBe(false)
+            expect(leftovers(filesDir), label).toEqual([])
+          }
+        }
+      }
+    }
+  })
+
+  it('fails closed when the database cannot be asked, and keeps the journal and the folders', async () => {
+    const userData = path.join(root, 'userData')
+    mkdirSync(userData, { recursive: true })
+    const filesDir = path.join(root, 'files')
+    mkdirSync(`${filesDir}.import-old`, { recursive: true })
+    writeFileSync(path.join(`${filesDir}.import-old`, 'o.txt'), 'original')
+    mkdirSync(filesDir, { recursive: true })
+    writeFileSync(path.join(filesDir, 'new.txt'), 'imported')
+    writeFileSync(journalOf(), JSON.stringify({ id: 'abc', hadFiles: true }))
+    await expect(
+      recoverImport({
+        userData,
+        filesDir,
+        hasImport: async () => {
+          throw new Error('database unavailable')
+        },
+      }),
+    ).rejects.toThrow('database unavailable')
+    expect(existsSync(journalOf())).toBe(true)
+    expect(read(filesDir)).toEqual({ 'new.txt': 'imported' })
+    expect(read(`${filesDir}.import-old`)).toEqual({ 'o.txt': 'original' })
+  })
+
+  it('names an unreadable journal, leaves everything alone, and clears a journal.tmp that a kill left', async () => {
+    const userData = path.join(root, 'userData')
+    mkdirSync(userData, { recursive: true })
+    const filesDir = filesWith(ORIGINAL)
+    writeFileSync(journalOf(), '{ not json')
+    writeFileSync(`${journalOf()}.tmp`, '{"id":"x"')
+    const before = checksumDir(filesDir)
+    const error = await recoverImport({ userData, filesDir, hasImport: async () => false }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ImportJournalError)
+    expect((error as ImportJournalError).file).toBe(journalOf())
+    expect(checksumDir(filesDir)).toBe(before)
+    expect(existsSync(journalOf())).toBe(true)
+    expect(existsSync(`${journalOf()}.tmp`)).toBe(false)
+  })
+
+  it('reports a cleanup that fails after the commit as done, not as a failed import', async () => {
+    const target = await exported({ 'new.txt': 'imported' })
+    const filesDir = filesWith(ORIGINAL)
+    // The operations after the commit are the removals of settle: fail the first one.
+    let committedAt = -1
+    const result = await run(target, filesDir, { restore: async () => { committedAt = faults.count; return OK } }, { at: (point) => { if (point === 'committed') faults.failAt = faults.count + 1 } })
+    faults.failAt = -1
+    expect(committedAt).toBeGreaterThan(0)
+    expect(result).toEqual({ ok: true, warning: 'cleanup' })
+    // The next start closes the journal that was left.
+    await recoverImport({ userData: path.join(root, 'userData'), filesDir, hasImport: async () => true })
+    expect(read(filesDir)).toEqual({ 'new.txt': 'imported' })
+    expect(leftovers(filesDir)).toEqual([])
   })
 })

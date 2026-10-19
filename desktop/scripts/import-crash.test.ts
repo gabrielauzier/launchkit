@@ -81,6 +81,7 @@ describe('an import killed by SIGKILL', () => {
     ['mid-swap', 'before'],
     ['swapped', 'before'],
     ['restoring', 'before'],
+    ['precommit', 'before'],
     ['committed', 'after'],
     ['cleaned', 'after'],
   ]

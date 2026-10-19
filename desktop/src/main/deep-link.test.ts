@@ -79,11 +79,15 @@ describe('deep links', () => {
     expect(lateFlow.navigate).toHaveBeenCalledWith(failed)
     expect(lateFlow.navigate).toHaveBeenCalledTimes(1)
 
-    // A nonce that is not the pending flow's is refused, and the flow stays pending for its own link.
+    // A nonce that is not the pending flow's is refused, and any attempt with a nonce spends the flow
+    // (documented in the Landing): the flow's own link, arriving afterwards, is refused too.
     const other = await started({ now: 1_000 })
     other.handle(sign('m'.repeat(43)))
     expect(other.navigate).toHaveBeenLastCalledWith(failed)
     expect(other.navigate).toHaveBeenCalledTimes(1)
+    other.handle(sign(other.nonce))
+    expect(other.navigate).toHaveBeenLastCalledWith(failed)
+    expect(other.navigate).toHaveBeenCalledTimes(2)
 
     const used = await started({ now: 1_000 })
     used.handle(sign(used.nonce))

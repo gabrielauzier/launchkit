@@ -58,9 +58,22 @@ async function main() {
       },
       restore: async (dump, id) => {
         try {
-          await restoreData(client, dump, id, { beforeCommit: () => {
-              if (point === 'restoring') die()
-            } })
+          await restoreData(client, dump, id, {
+            // 'restoring' dies after the first INSERT has run inside the transaction; 'precommit' just before the commit.
+            // Flushing to disk first lets a write that is not inside a transaction reach it, so the kill tells them apart.
+            afterStatement: async (_index, statement) => {
+              if (point === 'restoring' && statement.kind === 'insert') {
+                await client.syncToFs()
+                die()
+              }
+            },
+            beforeCommit: async () => {
+              if (point === 'precommit') {
+                await client.syncToFs()
+                die()
+              }
+            },
+          })
           return { ok: true }
         } catch (error) {
           return reason(error)

@@ -141,8 +141,10 @@ export function createLocalBackend({ fork, entry, userData, migrationsFolder }: 
 
     /** Whether the import with this id committed (its marker is in the database). */
     async hasImport(importId: string): Promise<boolean> {
-      const reply = await ask<{ ok: boolean; committed?: boolean }>({ type: 'has-import', importId })
-      return reply.ok && reply.committed === true
+      const reply = await ask<{ ok: boolean; committed?: boolean; message?: string }>({ type: 'has-import', importId })
+      // "Could not ask" is not "no": the recovery must fail rather than undo an import that may have committed.
+      if (!reply.ok) throw new Error(reply.message ?? 'the local backend could not answer')
+      return reply.committed === true
     },
 
     /** Backs the database up, starts the backend and waits until it listens. */

@@ -20,7 +20,7 @@ class FakeChild extends EventEmitter implements ChildLike {
   stderr = null
   sent: Array<Record<string, unknown>> = []
   killed = false
-  constructor(private readonly behaviour: { port?: number; fail?: string; exitOnShutdown?: boolean } = {}) {
+  constructor(private readonly behaviour: { port?: number; fail?: string; exitOnShutdown?: boolean; hasImport?: Record<string, unknown> } = {}) {
     super()
   }
   postMessage(message: Record<string, unknown>) {
@@ -33,6 +33,7 @@ class FakeChild extends EventEmitter implements ChildLike {
         } else this.emit('message', { type: 'ready', port: this.behaviour.port ?? 4567, migrationsApplied: 0 })
       })
     }
+    if (message.type === 'has-import') queueMicrotask(() => this.emit('message', { type: 'has-import-result', id: message.id, ...this.behaviour.hasImport }))
     if (message.type === 'shutdown' && this.behaviour.exitOnShutdown !== false) queueMicrotask(() => this.emit('exit', 0))
   }
   kill() {
@@ -118,5 +119,16 @@ describe('local backend', () => {
     await stopping
     expect(stuck.killed).toBe(true)
     expect(backend.info()).toBeNull()
+  })
+
+  it('answers whether an import committed, and throws when the backend could not answer', async () => {
+    for (const [reply, expected] of [[{ ok: true, committed: true }, true], [{ ok: true, committed: false }, false]] as const) {
+      const { backend } = backendWith([new FakeChild({ hasImport: reply })])
+      await backend.start()
+      expect(await backend.hasImport('abc')).toBe(expected)
+    }
+    const { backend } = backendWith([new FakeChild({ hasImport: { ok: false, reason: 'invalid', message: 'database closed' } })])
+    await backend.start()
+    await expect(backend.hasImport('abc')).rejects.toThrow('database closed')
   })
 })

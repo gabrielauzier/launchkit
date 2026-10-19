@@ -213,7 +213,7 @@ export async function hasImport(client: PGlite, id: string): Promise<boolean> {
  * allowlisted tables and parameterised INSERTs, plus the import marker. Refuses a dump that is not
  * the grammar above or comes from a newer schema; either leaves the database as it was.
  */
-export async function restoreData(client: PGlite, dump: DataDump, importId = 'unmarked', hooks: { beforeCommit?: () => void; afterStatement?: (index: number, statement: Statement) => void } = {}): Promise<void> {
+export async function restoreData(client: PGlite, dump: DataDump, importId = 'unmarked', hooks: { beforeCommit?: () => void | Promise<void>; afterStatement?: (index: number, statement: Statement) => void | Promise<void> } = {}): Promise<void> {
   const statements = await checkDump(client, dump)
   try {
     await client.transaction(async (tx) => {
@@ -223,12 +223,12 @@ export async function restoreData(client: PGlite, dump: DataDump, importId = 'un
           const placeholders = statement.values.map((_, index) => `$${index + 1}`).join(', ')
           await tx.query(`INSERT INTO ${quoted(statement.table)} (${statement.columns.map(quoted).join(', ')}) VALUES (${placeholders})`, statement.values)
         }
-        hooks.afterStatement?.(index, statement)
+        await hooks.afterStatement?.(index, statement)
       }
       await tx.query('CREATE SCHEMA IF NOT EXISTS "launchkit_internal"')
       await tx.query('CREATE TABLE IF NOT EXISTS "launchkit_internal"."imports" ("id" text PRIMARY KEY)')
       await tx.query('INSERT INTO "launchkit_internal"."imports" ("id") VALUES ($1)', [importId])
-      hooks.beforeCommit?.()
+      await hooks.beforeCommit?.()
     })
   } catch (error) {
     throw new InvalidDumpError(error instanceof Error ? error.message : String(error))

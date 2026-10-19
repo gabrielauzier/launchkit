@@ -190,6 +190,18 @@ describe('migration backups', () => {
       chmodSync(unreadable, 0o600)
     }
   })
+
+  it('removes an old .pending.tmp at the start, so nothing of it ends up in the backup', async () => {
+    seedDatabase()
+    const original = checksumDir(dbDir())
+    mkdirSync(path.join(userData, 'backups', '.pending.tmp'), { recursive: true })
+    writeFileSync(path.join(userData, 'backups', '.pending.tmp', 'junk-from-an-old-copy'), 'x')
+    await startWithBackup({ userData, now: () => Date.UTC(2026, 9, 16, 0, 0, 0, 0), run: async () => ({ migrationsApplied: 1 }) })
+    const kept = backups().filter((name) => ISO_NAME.test(name))
+    expect(kept).toHaveLength(1)
+    expect(checksumDir(path.join(userData, 'backups', kept[0]))).toBe(original)
+    expect(backups()).not.toContain('.pending.tmp')
+  })
 })
 
 function checksumDirNoRead(): string[] {
