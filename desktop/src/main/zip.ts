@@ -78,7 +78,33 @@ export function writeZip(entries: ZipEntry[], now = new Date()): Buffer {
   return Buffer.concat([...chunks, ...central, end])
 }
 
-export function readZip(buffer: Buffer): ZipEntry[] {
+export interface ReadLimits {
+  /** Largest uncompressed entry (declared in the header and enforced while inflating). */
+  maxEntryBytes?: number
+  /** Largest sum of the uncompressed entries. */
+  maxTotalBytes?: number
+  maxEntries?: number
+}
+
+export const MAX_ENTRY_BYTES = 256 * 1024 * 1024
+export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+export const MAX_ENTRIES = 100_000
+
+/** Names the archive may carry: relative, no empty, `.`, `..` or drive/stream (`:`) segments, no NUL or backslash. */
+function checkName(name: string): void {
+  const unsafe =
+    name === '' ||
+    name.startsWith('/') ||
+    name.includes('\0') ||
+    name.includes('\\') ||
+    name.split('/').some((segment) => segment === '' || segment === '.' || segment === '..' || segment.includes(':'))
+  if (unsafe) throw new ZipError(`unsafe entry name: ${JSON.stringify(name)}`)
+}
+
+export function readZip(buffer: Buffer, limits: ReadLimits = {}): ZipEntry[] {
+  const maxEntry = limits.maxEntryBytes ?? MAX_ENTRY_BYTES
+  const maxTotal = limits.maxTotalBytes ?? MAX_TOTAL_BYTES
+  const maxEntries = limits.maxEntries ?? MAX_ENTRIES
   // The end-of-central-directory record is within the last 64 KB + 22 bytes (a comment may follow it).
   let end = -1
   for (let at = buffer.length - 22; at >= Math.max(0, buffer.length - 22 - 0xffff); at--) {
@@ -93,7 +119,10 @@ export function readZip(buffer: Buffer): ZipEntry[] {
   let cursor = buffer.readUInt32LE(end + 16)
   if (cursor + centralSize > end) throw new ZipError('the central directory is damaged')
 
+  if (count > maxEntries) throw new ZipError('too many entries')
   const entries: ZipEntry[] = []
+  const names = new Set<string>()
+  let total = 0
   for (let index = 0; index < count; index++) {
     if (cursor + 46 > buffer.length || buffer.readUInt32LE(cursor) !== CENTRAL) throw new ZipError('the central directory is damaged')
     const method = buffer.readUInt16LE(cursor + 10)
@@ -107,19 +136,30 @@ export function readZip(buffer: Buffer): ZipEntry[] {
     const name = buffer.toString('utf8', cursor + 46, cursor + 46 + nameLength)
     cursor += 46 + nameLength + extraLength + commentLength
 
-    if (name.startsWith('/') || /^[a-zA-Z]:/.test(name) || name.split(/[\\/]/).includes('..')) throw new ZipError(`unsafe entry name: ${name}`)
+    checkName(name)
+    if (names.has(name)) throw new ZipError(`duplicate entry: ${name}`)
+    names.add(name)
+    // Declared sizes are checked before anything is inflated; the inflate is then capped at the declared size.
+    if (size > maxEntry || (total += size) > maxTotal) throw new ZipError('an entry is too large')
     if (localOffset + 30 > buffer.length || buffer.readUInt32LE(localOffset) !== LOCAL) throw new ZipError('an entry is damaged')
     const start = localOffset + 30 + buffer.readUInt16LE(localOffset + 26) + buffer.readUInt16LE(localOffset + 28)
     if (start + compressedSize > buffer.length) throw new ZipError('the archive is truncated')
     const body = buffer.subarray(start, start + compressedSize)
     let data: Buffer
     try {
-      data = method === 8 ? inflateRawSync(body) : method === 0 ? Buffer.from(body) : (() => { throw new ZipError(`unsupported method ${method}`) })()
+      data = method === 8 ? inflateRawSync(body, { maxOutputLength: Math.max(size, 1) }) : method === 0 ? Buffer.from(body) : (() => { throw new ZipError(`unsupported method ${method}`) })()
     } catch (error) {
       throw error instanceof ZipError ? error : new ZipError('an entry cannot be decompressed')
     }
     if (data.length !== size || crc32(data) !== checksum) throw new ZipError(`checksum mismatch in ${name}`)
     entries.push({ name, data })
+  }
+  // A name may not be both a file and a folder (`files/a` and `files/a/b`).
+  for (const name of names) {
+    const parts = name.split('/')
+    for (let end = 1; end < parts.length; end++) {
+      if (names.has(parts.slice(0, end).join('/'))) throw new ZipError(`entry ${name} is under a file`)
+    }
   }
   return entries
 }
