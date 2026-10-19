@@ -173,9 +173,20 @@ test('C14 the desktop of a python tree installs, lints, typechecks, tests and bu
   // npm ci refuses a lockfile that does not match package.json: this is what the pruned lock is for.
   run('frontend', 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'])
   run('desktop', 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'])
-  for (const script of ['lint', 'typecheck', 'test', 'build:frontend', 'build']) run('desktop', 'npm', ['run', script])
+  // The frontend lost the mode choice and the export modal: it has to lint, typecheck and pass its own tests.
+  for (const script of ['lint', 'typecheck', 'test']) run('frontend', 'npm', ['run', script])
+  // The packaged app is what the CI tests read (fuses, the packaged-app proofs): package it first, like the job does.
+  for (const script of ['lint', 'typecheck', 'build:frontend', 'build', 'package:dir', 'test']) run('desktop', 'npm', ['run', script])
+  if (process.env.DESKTOP_E2E) {
+    // Optional (needs the Electron binary and a display): the remote client's end-to-end specs.
+    run('desktop', 'node', ['node_modules/electron/install.js'])
+    run('desktop', 'npx', ['playwright', 'test'])
+  }
   assert.ok(existsSync(join(dir, 'desktop/out/main/index.js')))
   assert.ok(!existsSync(join(dir, 'desktop/out/backend')), 'no local backend in the build')
+  const resources = join(dir, 'desktop/release')
+  assert.ok(existsSync(resources), 'package:dir left an app')
+  assert.ok(!readdirSync(resources, { recursive: true }).some((name) => /(^|\/)backend(\/|$)/.test(String(name))), 'no backend folder in the package')
   // The CI tests of the selected tree (the same ones C14 runs for the Compose and chart files).
   for (const file of ['test_changes.py', 'test_workflow_jobs.py']) {
     const py = spawnSync('python3', [`.github/ci/${file}`], { cwd: dir, encoding: 'utf8' })
