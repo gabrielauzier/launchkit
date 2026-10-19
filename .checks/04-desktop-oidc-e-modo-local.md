@@ -104,6 +104,7 @@ Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.
 Proof: `cd contracts && CONTRACT_STACK=node npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a missing or short desktop_nonce"`
 Proof: `cd backend && python -m pytest tests/test_oidc_auth.py -k desktop_nonce`
 Proof: `cd backend-node && npx vitest run test/routes/oidc.test.ts -t "desktop_nonce"`
+Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a desktop_nonce longer than 128 characters"` e o mesmo com `CONTRACT_STACK=node` (limite máximo acrescentado pelo Verifier; o critério acima não muda)
 
 **D5** - Sem `redirect_target` (com a lista configurada) o estado guardado é `{"nonce","code_verifier"}` (também quando só `desktop_nonce` vem na query) e o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D5 "`
@@ -131,6 +132,7 @@ Proof: `cd desktop && npx playwright test e2e/sso.spec.ts -g "the same deep link
 
 **D9a** - Deep link `auth/callback` que não vale um login navega para `/login?sso=failed` com servidor configurado e para `/connect?sso=failed` sem servidor, e nenhum token é gravado (tabela: sem fragmento, `#access_token=` vazio, `#error=access_denied`, nonce ausente, nonce diferente do pendente, nonce expirado depois de 10 minutos, nonce já usado, sem fluxo pendente)
 Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "sends an incomplete link to the sign-in failure screen"`
+Proof: `cd desktop && npx vitest run src/main/deep-link.test.ts -t "a link without a token does not spend the pending sign-in"` (decisão do `Landing`: um link sem token não consome o fluxo)
 
 **D9b** - `/login?sso=failed` e `/connect?sso=failed` mostram um `role="alert"` com `Sign-in did not complete` (pt-BR `O login não foi concluído`)
 Proof: `cd frontend && npx vitest run src/pages/login.test.tsx -t "shows Sign-in did not complete when sso=failed"`
@@ -198,6 +200,9 @@ Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "creates no back
 
 **D18c** - Se a migration falha, o app mostra o erro e `userData/db` tem o mesmo checksum de antes (a cópia é restaurada)
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "restores the original database when the migration fails"`
+Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "restores the database from the pending copy when the app died in the middle of a migration"` (o app morre no meio da migration; o próximo start recomeça da cópia boa e a guarda como backup)
+Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "puts the pending copy back when the restarted migration fails too"`
+Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "ignores a pending copy that was only half written"`
 
 **D19a** - Se o backend local não inicia (banco corrompido, saída antes do `ready`), a tela mostra `Could not start the local backend` (pt-BR `Não foi possível iniciar o backend local`) com os botões `Try again` e `Open logs` (pt-BR `Tentar de novo` e `Abrir logs`), e o banco continua com o mesmo checksum
 Proof: `cd frontend && npx vitest run src/pages/mode-select.test.tsx -t "shows the local backend failure with retry and logs actions"`
@@ -231,6 +236,10 @@ Proof: `cd desktop && npx playwright test e2e/local.spec.ts -g "import into a ne
 **D24** - Arquivo que não é zip, zip corrompido ou `formatVersion` maior que 1 mostram `Invalid export file` (pt-BR `Arquivo de exportação inválido`) e o banco local tem o mesmo checksum de antes
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses a file that is not a valid export and changes nothing"` (tabela: texto puro, zip truncado, `formatVersion` 2)
 Proof: `cd desktop && npx playwright test e2e/local.spec.ts -g "an invalid export file shows the error and keeps the database"`
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "refuses a dump with transaction control or statements outside the dump grammar"` (um `COMMIT;` no meio, DDL, DML e `SELECT` fora do dump: o banco fica igual)
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "puts the old files back when the restore fails or throws"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses a hostile archive before the restore or any write"`
+Proof: `cd desktop && npx vitest run src/main/zip.test.ts` (bomba de descompressão, tamanhos declarados, nomes duplicados e colidentes, CRC e tamanho só no payload)
 
 **D25** - Com usuários no banco local, importar é recusado com `Import is only available on a new installation` (pt-BR `A importação só está disponível em uma instalação nova`) e nada muda (checksum do banco e dos arquivos igual)
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses to import when the database already has users"`
@@ -267,7 +276,7 @@ Proof: `cd desktop && npm run package:dir && npx vitest run scripts/packaged-loc
 - data lifecycle: D18 (backup antes de migrar, 3 mais recentes), D21 (dados continuam em `userData`), D16
 - external-dependency failure: existing - o provedor OIDC e o callback rodam no servidor, inalterados (task 1 C25); o modo local não tem dependência externa (D16, D17)
 - state transitions: D11, D12, D18, D19, D20, D21 (diagrama de `States` da task); `Remoto -> ModoNaoEscolhido` fica como está na task 3 (C10a abre a tela de conexão), ver `Landing`
-- observability: D19 (pasta de logs); o backend local grava stdout e stderr em `userData/logs/backend.log` sem segredos (critério 40 da task 1); o token de sessão local e o `secret.key` não aparecem no log (proof no batch 2, dentro de D19b)
+- observability: D19 (pasta de logs); o backend local grava stdout e stderr em `userData/logs/backend.log` sem segredos (critério 40 da task 1); o token de sessão local e o `secret.key` não aparecem no log: o teste `never writes the session token or the secret key to its log, even at trace level` (`backend-node/test/local/local-server.test.ts`) sobe o servidor com logger em `trace`, faz requisições e prova a ausência dos VALORES do token e da chave (o e2e de D19b prova só a ausência do nome do cabeçalho)
 
 ## Coverage
 
@@ -296,6 +305,11 @@ Proof: `cd desktop && npm run package:dir && npx vitest run scripts/packaged-loc
 
 Ambiente: macOS arm64, Node 22, PostgreSQL 16 (Docker `t04-pg`, ou o do Homebrew quando o Docker travou) e Redis (Docker `t04-redis`, ou `redis-server` 6.2 do pacote `redislite` no batch 3: o do compose é o 8), Python 3.11 em venv próprio fora do git (`CONTRACT_PYTHON_BIN`). Windows e Linux só existem no `desktop-e2e` do GitHub Actions. Não declaro proof verde onde ele não roda:
 
+- Verifier, finding 9 (não corrigido): a exportação contém `hashed_password` em texto puro dentro de `db.sql` e o zip inteiro (dump, arquivos, e o `readFileSync` do import) é lido e montado em memória; um banco ou uma pasta de arquivos grandes pode esgotar a memória do processo principal. O arquivo exportado deve ser guardado como o banco.
+- Verifier, finding 10 (não corrigido): o backup antes da migration copia o diretório `db` inteiro a cada start que tem banco (mesmo sem migration pendente, antes de saber se há), custo proporcional ao tamanho do banco.
+- Verifier, finding 11 (não corrigido): `server.cjs` e seus externos ficam em `resources/backend`, fora do asar e fora da validação de integridade do asar (`enableEmbeddedAsarIntegrityValidation` cobre só o `app.asar`); quem pode escrever na pasta de instalação pode trocar o backend.
+- Redis 6.2 contra 8: os proofs de contrato e o R1 deste batch rodaram com o `redis-server` 6.2 do pacote `redislite`; o compose e o CI usam o Redis 8. O que o CI prova a mais: o mesmo conjunto contra o Redis 8, e o teste `C39 rateLimitHit counts two hits at the same instant twice` no job `backend-node-tests` (que tem Redis).
+- Item 4 (macOS por arquitetura): a forma do workflow e do builder é provada (`release-workflow.test.ts`); o build x64 em `macos-15-intel` e o arm64 em `macos-latest`, o addon `argon2-darwin-x64` dentro do pacote x64 e o modo local funcionando nele só o job de release prova (precisa dos segredos de assinatura e do runner Intel).
 - D26c - Windows e Linux só no job de CI; o `launchArgs` já acrescenta `--no-sandbox` em Linux com `CI`.
 - D7a/D7b - a entrega pelo sistema operacional (macOS `open launchkit://...` com o app instalado, o registro do esquema em Windows e Linux) não é exercida: o `open-url` é emitido por `app.emit` no processo principal e o `second-instance` é um segundo processo com o link no argv. Prova o tratamento do evento, não o registro real no sistema; `setAsDefaultProtocolClient` e `protocols` são conferidos como configuração (D7c).
 - D16 - "sem rede" é a resolução de nomes bloqueada fora de loopback (`--host-resolver-rules`) mais a ausência de conexões de saída do processo do backend (`lsof`); a interface de rede não é desligada.
@@ -350,3 +364,15 @@ Corte (slices inteiras, nunca no meio):
 - **O que foi abandonado:** (1) `pg_dump` WASM, cópia do diretório do PGlite e rota HTTP interna para o `db.sql`; (2) bibliotecas de zip; (3) colocar o `server.cjs` dentro do asar; (4) o Docker travou duas vezes por falta de disco; o PostgreSQL do Homebrew (`/tmp/lkpg`, fora do git) e um `redis-server` 6.2 do pacote `redislite` no venv de fora do git substituíram `t04-pg` e `t04-redis` nos proofs de contrato deste batch.
 - **Mudanças em `.github/`:** `ci.yml` - `desktop-checks` ganha o passo `Start a virtual display` (Xvfb, `DISPLAY=:99`) antes de `npm test`; `desktop-e2e` troca `Build the app` + `npx playwright test` por `npm run test:e2e` (`xvfb-run` no Linux); `changes.py` - `run_desktop` também para `backend-node/` e `contracts/`; `test_changes.py` - o padrão do quinto valor segue frontend ou backend_node e dois casos novos em `test_run_desktop_selection`. Nada de `run_stack_switch`/`run_select_stack`.
 - **TS5102 do frontend:** `npx tsc --noEmit` na raiz dá o erro; o script oficial `npm run typecheck` passa. O erro vem do `tsconfig.json`, que a task não tocou (`git diff` limpo nele). Nada corrigido.
+
+### Correções do Verifier (rodada 1)
+
+- 1 import tudo-ou-nada: gramática do dump no backend (`COMMIT` e DDL recusados antes de executar), vermelho com `INSERT...; COMMIT; DROP TABLE workspaces; INSERT INTO nowhere...` (`expected { users: 1 ...} to deeply equal`), verde depois; mais o e2e `commit.zip`.
+- 2 crash na migration: `.pending` só some depois do `run()`; vermelho nos 3 testes novos de `backup.test.ts`, verde depois.
+- 3 e 6(finding) zip: limites e nomes; vermelho (`expected 67043320 to be less than 16777216` de memória, e a tabela de nomes), verde depois.
+- 4 macOS: matriz `include` por arquitetura; vermelho em `release-workflow.test.ts` contra o workflow antigo, verde depois.
+- 5 import atômico com os arquivos: preparo + troca + volta; testes `puts the old files back...` e `refuses a hostile archive...`.
+- 6 `desktop_nonce` <= 128 nas duas stacks; vermelho `D4 rejects a desktop_nonce longer than 128 characters` (`129: expected 307 to be 400`) em Python e Node, verde depois; `openapi.json` não muda (a validação é manual, como a do mínimo) e `export_openapi.py --check` fica limpo.
+- 7 link `failed` com nonce: não consome o fluxo (registrado no `Landing`, provado por `a link without a token does not spend the pending sign-in`).
+- Mutantes mortos: Z2 (CRC e tamanho removidos de `readZip`: `zip.test.ts` fica vermelho em cada um), I1 (`ipcMain.handle(IPC.startLocal, ...)` no lugar de `trustedHandle`: `ipc.test.ts` fica vermelho), R1 (membro único revertido: `expected 1 to be 2`, com Redis; o `redis-store.ts` é idêntico ao commit `1ba3483` da task 1), D9a (nonce expirado: `now() < flow.expiresAt` removido; já usado: `pending = null` removido; os dois deixam o proof nomeado vermelho).
+- Precisão: D6 agora afirma sobre `contracts/openapi.json` (mutante `redirect_targetX` vermelho); comentário `thirteen members` corrigido; o proof do log prova o valor do token.
