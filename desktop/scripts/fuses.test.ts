@@ -1,21 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { findPackagedApp } from './packaged-app'
 
 const release = path.resolve(__dirname, '..', 'release')
-
-/** The unpacked app that `electron-builder --dir` leaves in release/, per operating system. */
-function packagedApp(): string | null {
-  if (!existsSync(release)) return null
-  for (const dir of readdirSync(release)) {
-    const base = path.join(release, dir)
-    if (dir.startsWith('mac') && existsSync(path.join(base, 'launchkit.app'))) return path.join(base, 'launchkit.app')
-    if (dir === 'linux-unpacked' && existsSync(path.join(base, 'launchkit'))) return path.join(base, 'launchkit')
-    if (dir === 'win-unpacked' && existsSync(path.join(base, 'launchkit.exe'))) return path.join(base, 'launchkit.exe')
-  }
-  return null
-}
 
 function readFuses(app: string): Record<string, boolean> {
   const output = execFileSync('npx', ['--no-install', '@electron/fuses', 'read', '--app', app], { encoding: 'utf8' })
@@ -27,7 +15,7 @@ function readFuses(app: string): Record<string, boolean> {
   return fuses
 }
 
-const app = packagedApp()
+const app = findPackagedApp(release)
 
 describe('packaged app fuses', () => {
   // `npm run package:dir` produces the app. Locally, without it there is nothing
