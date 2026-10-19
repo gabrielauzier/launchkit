@@ -14,7 +14,7 @@ describe('desktop-release workflow', () => {
   it('release workflow shape', () => {
     expect(workflow.on.push.tags).toEqual(['desktop-v*'])
     const job = workflow.jobs['desktop-release']
-    expect(job.strategy.matrix.os.slice().sort()).toEqual(['macos-latest', 'ubuntu-latest', 'windows-latest'])
+    expect(job.strategy.matrix.include.map((item: { os: string }) => item.os).sort()).toEqual(['macos-15-intel', 'macos-latest', 'ubuntu-latest', 'windows-latest'])
     expect(job.strategy['fail-fast']).toBe(false)
     expect(job['runs-on']).toBe('${{ matrix.os }}')
     // Publishes through electron-builder to the configurable repository.
@@ -24,6 +24,20 @@ describe('desktop-release workflow', () => {
     expect(publish.env.GH_TOKEN).toContain('secrets.')
     expect(job.permissions.contents).toBe('write')
     expect(publish.run).not.toMatch(/--publish\s+never/)
+  })
+
+  it('builds each macOS architecture on a runner of that architecture', () => {
+    const job = workflow.jobs['desktop-release']
+    const mac = job.strategy.matrix.include.filter((item: { os: string }) => item.os.startsWith('macos'))
+    // The local mode's argon2 addon is copied from the host's node_modules by extraResources: only a
+    // runner of the target architecture has the right one.
+    expect(mac).toContainEqual({ os: 'macos-latest', electron_args: '--arm64' })
+    expect(mac).toContainEqual({ os: 'macos-15-intel', electron_args: '--x64' })
+    expect(mac).toHaveLength(2)
+    const publish = job.steps.find((step: { run?: string }) => step.run?.includes('--publish always'))
+    expect(publish.run).toContain('${{ matrix.electron_args }}')
+    expect(builder.extraResources).toContainEqual({ from: 'node_modules/@node-rs', to: 'backend/node_modules/@node-rs' })
+    for (const item of job.strategy.matrix.include) expect(item.electron_args, item.os).toMatch(/^--(x64|arm64)$/)
   })
 
   it('splits the configurable owner/repo for the builder', () => {

@@ -19,7 +19,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # One build per architecture on a runner of that architecture: the packaged local backend
+        # carries the host's native argon2 addon, so an x64 app cannot be built on the arm64 runner.
+        include:
+          - os: macos-latest
+            electron_args: --arm64
+          - os: macos-15-intel
+            electron_args: --x64
+          - os: windows-latest
+            electron_args: --x64
+          - os: ubuntu-latest
+            electron_args: --x64
 
     steps:
       - uses: actions/checkout@v7
@@ -111,7 +121,7 @@ jobs:
           WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
         run: >-
-          npx electron-builder --publish always
+          npx electron-builder ${{ matrix.electron_args }} --publish always
           -c.publish.provider=github
           -c.publish.owner="${LAUNCHKIT_DESKTOP_RELEASE_OWNER}"
           -c.publish.repo="${LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}"
