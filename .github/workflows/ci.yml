@@ -636,7 +636,12 @@ jobs:
         if: steps.desktop-changes.outputs.run_desktop != 'false'
         run: npm run package:dir
 
+      # select-stack:begin node
       # The packaged-app test starts the app with its local backend; it needs a display.
+      # select-stack:end
+      # select-stack:begin python
+      #~ # The packaged-app test starts the app; it needs a display.
+      # select-stack:end
       - name: Start a virtual display
         if: steps.desktop-changes.outputs.run_desktop != 'false'
         run: |

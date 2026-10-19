@@ -65,7 +65,12 @@ describe('ci workflow', () => {
     // The script it calls builds first and the specs it must reach exist.
     const scripts = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')).scripts as Record<string, string>
     expect(scripts['test:e2e']).toBe('npm run build:all && playwright test')
+    // select-stack:begin node
     for (const spec of ['local-flow.spec.ts', 'sso.spec.ts']) expect(existsSync(path.resolve(__dirname, '../e2e', spec)), spec).toBe(true)
+    // select-stack:end
+    // select-stack:begin python
+    //~ for (const spec of ['sso.spec.ts', 'connect.spec.ts']) expect(existsSync(path.resolve(__dirname, '../e2e', spec)), spec).toBe(true)
+    // select-stack:end
     const playwright = readFileSync(path.resolve(__dirname, '../playwright.config.mts'), 'utf8')
     expect(playwright).toContain("testMatch: '**/*.spec.ts'")
     expect(playwright).not.toMatch(/testIgnore|grep/)

@@ -12,7 +12,10 @@
 //      a block is kept (markers removed, `#~ text` lines turned into `text`) when it names the
 //      chosen stack and dropped otherwise; `multi` blocks are always dropped;
 //   3. resolves the chart's stack conditionals and the BACKEND_STACK include in the Compose files;
-//   4. edits renovate.json.
+//   4. edits renovate.json;
+//   5. for Python, makes the desktop app a remote client: package.json and its lockfile lose the local
+//      mode's packages and the locales lose its strings.
+// Besides `#~`, a line starting with `//~` is uncommented in a kept block (for files where `#` is not a comment).
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -22,12 +25,32 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const STACKS = ['python', 'node']
 const USAGE = 'Usage: node scripts/select-stack.mjs --stack python|node'
 
+// What exists only for the desktop app's local mode (it embeds backend-node): a Python project keeps the
+// desktop as a remote client, without any of it.
+const DESKTOP_LOCAL_MODE = [
+  'desktop/scripts/build-backend.mjs',
+  'desktop/scripts/import-crash-harness.ts',
+  'desktop/scripts/import-crash.test.ts',
+  'desktop/scripts/packaged-local.test.ts',
+  ...['backup', 'export-import', 'local-backend', 'transfer', 'zip'].flatMap((name) => [`desktop/src/main/${name}.ts`, `desktop/src/main/${name}.test.ts`]),
+  'desktop/e2e/local-flow.spec.ts',
+  'desktop/e2e/local.spec.ts',
+  'desktop/e2e/support/local.ts',
+  'frontend/src/pages/mode-select.tsx',
+  'frontend/src/pages/mode-select.test.tsx',
+  'frontend/src/components/export-modal.tsx',
+  'frontend/src/components/export-modal.test.tsx',
+  'frontend/src/lib/write-lock.ts',
+]
+// Packages only the local mode's backend bundle needs.
+const DESKTOP_LOCAL_PACKAGES = { dependencies: ['@electric-sql/pglite', '@node-rs/argon2'], devDependencies: ['esbuild'] }
+
 const REMOVE = {
-  python: ['backend-node', 'contracts', 'compose/dev/node.yml', 'compose/prod/node.yml', 'scripts/stack'],
+  python: ['backend-node', 'contracts', 'compose/dev/node.yml', 'compose/prod/node.yml', 'scripts/stack', ...DESKTOP_LOCAL_MODE],
   node: ['backend', 'contracts', 'compose/dev/python.yml', 'compose/prod/python.yml', 'scripts/stack', '.pre-commit-config.yaml'],
 }
 // Never rewritten: documentation, the other source trees, lockfiles and this tool.
-const SKIP_PREFIXES = ['docs/', '.tasks/', '.checks/', 'backend/', 'backend-node/', 'contracts/', 'frontend/', 'scripts/stack/', 'scripts/select-stack.mjs']
+const SKIP_PREFIXES = ['docs/', '.tasks/', '.checks/', 'backend/', 'backend-node/', 'contracts/', 'scripts/stack/', 'scripts/select-stack.mjs']
 
 function fail(code, message) {
   console.error(message)
@@ -64,7 +87,7 @@ export function applyMarkers(text, stack) {
       continue
     }
     if (block === null) out.push(line)
-    else if (block === stack) out.push(line.replace(/^(\s*)#~ ?/, '$1'))
+    else if (block === stack) out.push(line.replace(/^(\s*)(?:#~|\/\/~) ?/, '$1'))
   }
   return out.join('\n')
 }
@@ -107,6 +130,65 @@ export function resolveChart(text, stack) {
   return result
 }
 
+/** desktop/package.json for a project without the local mode: no backend bundle, no embedded database. */
+export function editDesktopPackage(text, stack) {
+  if (stack !== 'python') return text
+  const pkg = JSON.parse(text)
+  for (const [section, names] of Object.entries(DESKTOP_LOCAL_PACKAGES)) for (const name of names) delete pkg[section]?.[name]
+  delete pkg.scripts['build:backend']
+  pkg.scripts['build:all'] = 'npm run build:frontend && npm run build'
+  return `${JSON.stringify(pkg, null, 2)}\n`
+}
+
+/**
+ * desktop/package-lock.json to match: the removed packages leave the root, then everything no longer
+ * reachable from the root leaves with them (`npm ci` refuses a lockfile that does not match package.json).
+ */
+export function editDesktopLock(text, stack) {
+  if (stack !== 'python') return text
+  const lock = JSON.parse(text)
+  const root = lock.packages['']
+  for (const [section, names] of Object.entries(DESKTOP_LOCAL_PACKAGES)) for (const name of names) delete root[section]?.[name]
+  const resolve = (name, from) => {
+    for (let base = from; ; base = base.includes('/node_modules/') ? base.slice(0, base.lastIndexOf('/node_modules/')) : '') {
+      const candidate = `${base === '' ? '' : `${base}/`}node_modules/${name}`
+      if (lock.packages[candidate]) return candidate
+      if (base === '') return null
+    }
+  }
+  const seen = new Set([''])
+  const queue = ['']
+  while (queue.length > 0) {
+    const from = queue.pop()
+    const entry = lock.packages[from]
+    const sections = from === '' ? ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] : ['dependencies', 'optionalDependencies', 'peerDependencies']
+    for (const section of sections) {
+      for (const name of Object.keys(entry[section] ?? {})) {
+        const target = resolve(name, from)
+        if (target !== null && !seen.has(target)) {
+          seen.add(target)
+          queue.push(target)
+        }
+      }
+    }
+  }
+  lock.packages = Object.fromEntries(Object.entries(lock.packages).filter(([key]) => seen.has(key)))
+  return `${JSON.stringify(lock, null, 2)}\n`
+}
+
+/** The locales without the local mode's strings (the mode choice, export and import, their menu items). */
+export function editLocales(text, stack) {
+  if (stack !== 'python') return text
+  const locale = JSON.parse(text)
+  if (locale.desktop) {
+    delete locale.desktop.mode
+    delete locale.desktop.transfer
+    delete locale.desktop.menu?.exportData
+    delete locale.desktop.menu?.importData
+  }
+  return `${JSON.stringify(locale, null, 2)}\n`
+}
+
 export function editRenovate(text, stack) {
   if (stack !== 'node') return text
   const config = JSON.parse(text)
@@ -144,7 +226,16 @@ function main() {
   let updated = 0
   for (const path of tracked) {
     const file = join(ROOT, path)
-    if (!existsSync(file) || SKIP_PREFIXES.some((prefix) => path.startsWith(prefix)) || path.endsWith('package-lock.json')) continue
+    if (!existsSync(file) || SKIP_PREFIXES.some((prefix) => path.startsWith(prefix))) continue
+    if (path === 'desktop/package-lock.json') {
+      const text = editDesktopLock(readFileSync(file, 'utf8'), stack)
+      if (text !== readFileSync(file, 'utf8')) {
+        writeFileSync(file, text)
+        updated += 1
+      }
+      continue
+    }
+    if (path.endsWith('package-lock.json')) continue
     const buffer = readFileSync(file)
     if (buffer.includes(0)) continue
     const original = buffer.toString('utf8')
@@ -152,6 +243,8 @@ function main() {
     if (path.startsWith('charts/')) text = resolveChart(text, stack)
     if (/^docker-compose.*\.yml$/.test(path)) text = text.replaceAll('${BACKEND_STACK:-python}', stack)
     if (path === 'renovate.json') text = editRenovate(text, stack)
+    if (path === 'desktop/package.json') text = editDesktopPackage(text, stack)
+    if (/^frontend\/src\/locales\/[\w-]+\.json$/.test(path)) text = editLocales(text, stack)
     if (text !== original) {
       writeFileSync(file, text)
       updated += 1

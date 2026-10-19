@@ -42,21 +42,28 @@ describe('trusted ipc handlers', () => {
 describe('every ipc channel the main process serves', () => {
   const source = readFileSync(path.resolve(__dirname, 'index.ts'), 'utf8')
   // Export and import are menu items of the main process, not channels; these two only carry events to the renderer.
+  // select-stack:begin node
   const SEND_ONLY = ['exportState', 'updateAvailable']
+  // select-stack:end
+  // select-stack:begin python
+  //~ const SEND_ONLY = ['updateAvailable']
+  // select-stack:end
   const handled = Object.entries(IPC).filter(([key]) => !SEND_ONLY.includes(key))
 
   it('is registered through trustedHandle and never through ipcMain directly', () => {
+    // The python alternatives (//~ lines) are comments in the full tree: judge the code only.
     expect(source).not.toMatch(/ipcMain\s*\.\s*(handle|handleOnce|on|once)\b/)
     // ipcMain may only be named in the electron import (plainly, no `as`) and as the first argument of
     // trustedHandle: no alias, no namespace import, no require, no destructuring, no electron.ipcMain.
-    const imports = [...source.matchAll(/^import\s+(.+?)\s+from\s+'electron'$/gm)].map((match) => match[1])
+    const code = source.replace(/^\s*\/\/.*$/gm, '')
+    const imports = [...code.matchAll(/^import\s+(.+?)\s+from\s+'electron'$/gm)].map((match) => match[1])
     expect(imports).toHaveLength(1)
     expect(imports[0]).toMatch(/^\{[^}]*\}$/)
     expect(imports[0]).not.toMatch(/\bas\b/)
-    expect(source).not.toMatch(/import\s+\*\s+as/)
-    expect(source).not.toMatch(/require\s*\(/)
-    expect(source).not.toMatch(/import\s*\(/)
-    const rest = source.replace(/^import\s+\{.*\}\s+from\s+'electron'$/m, '').replaceAll('trustedHandle(ipcMain, ', 'trustedHandle(')
+    expect(code).not.toMatch(/import\s+\*\s+as/)
+    expect(code).not.toMatch(/require\s*\(/)
+    expect(code).not.toMatch(/import\s*\(/)
+    const rest = code.replace(/^import\s+\{.*\}\s+from\s+'electron'$/m, '').replaceAll('trustedHandle(ipcMain, ', 'trustedHandle(')
     expect(rest).not.toMatch(/\bipcMain\b/)
     for (const [key] of handled) {
       expect(source, `IPC.${key}`).toContain(`trustedHandle(ipcMain, IPC.${key},`)

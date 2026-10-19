@@ -19,8 +19,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # select-stack:begin node
         # One build per architecture on a runner of that architecture: the packaged local backend
         # carries the host's native argon2 addon, so an x64 app cannot be built on the arm64 runner.
+        # select-stack:end
+        # select-stack:begin python
+        #~ # One build per architecture on a runner of that architecture.
+        # select-stack:end
         include:
           - os: macos-latest
             electron_args: --arm64

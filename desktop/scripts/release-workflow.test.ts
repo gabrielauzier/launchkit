@@ -36,7 +36,9 @@ describe('desktop-release workflow', () => {
     expect(mac).toHaveLength(2)
     const publish = job.steps.find((step: { run?: string }) => step.run?.includes('--publish always'))
     expect(publish.run).toContain('${{ matrix.electron_args }}')
+    // select-stack:begin node
     expect(builder.extraResources).toContainEqual({ from: 'node_modules/@node-rs', to: 'backend/node_modules/@node-rs' })
+    // select-stack:end
     const flags = Object.fromEntries(job.strategy.matrix.include.map((item: { os: string; electron_args: string }) => [item.os, item.electron_args]))
     expect(flags).toEqual({ 'macos-latest': '--arm64', 'macos-15-intel': '--x64', 'windows-latest': '--x64', 'ubuntu-latest': '--x64' })
   })

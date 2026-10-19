@@ -52,6 +52,8 @@ const LOCAL_MODE_FILES = [
   'frontend/src/lib/write-lock.ts',
 ]
 const LOCAL_MODE_PACKAGES = ['@electric-sql/pglite', '@node-rs/argon2', 'esbuild']
+// esbuild stays in the lockfile when electron-vite needs it; the two runtime packages must not.
+const LOCK_FREE_PACKAGES = ['@electric-sql/pglite', '@node-rs/argon2']
 
 /** Every file under `dir` (relative paths), without node_modules and lockfiles. */
 function walk(root, dir = '') {
@@ -92,7 +94,9 @@ test('C13 the desktop of a python tree is a remote client: no local mode in the 
   assert.equal(pkg.scripts['build:backend'], undefined)
   assert.equal(pkg.scripts['build:all'], 'npm run build:frontend && npm run build')
   const lock = JSON.parse(readFileSync(join(dir, 'desktop/package-lock.json'), 'utf8'))
-  for (const name of LOCAL_MODE_PACKAGES) assert.equal(lock.packages[`node_modules/${name}`], undefined, `${name} should be out of the lockfile`)
+  for (const name of LOCK_FREE_PACKAGES) assert.equal(lock.packages[`node_modules/${name}`], undefined, `${name} should be out of the lockfile`)
+  assert.equal(lock.packages[''].dependencies['@electric-sql/pglite'], undefined)
+  assert.equal(lock.packages[''].devDependencies.esbuild, undefined)
   assert.ok(!Object.keys(lock.packages).some((key) => key.startsWith('node_modules/@node-rs/')), '@node-rs/* should be out of the lockfile')
 
   const builder = readFileSync(join(dir, 'desktop/electron-builder.yml'), 'utf8')
