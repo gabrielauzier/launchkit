@@ -49,12 +49,11 @@ describe('desktop-release workflow', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-    // ...and the builder reads exactly the variables the step writes.
-    expect(builder.publish).toMatchObject({
-      provider: 'github',
-      owner: '${env.LAUNCHKIT_DESKTOP_RELEASE_OWNER}',
-      repo: '${env.LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}',
-    })
+    // ...and the publish command hands the builder exactly the variables the step writes.
+    const publish = workflow.jobs['desktop-release'].steps.find((step: { run?: string }) => step.run?.includes('--publish always'))
+    expect(publish.run).toContain('-c.publish.provider=github')
+    expect(publish.run).toContain('-c.publish.owner="${LAUNCHKIT_DESKTOP_RELEASE_OWNER}"')
+    expect(publish.run).toContain('-c.publish.repo="${LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}"')
   })
 
   it('publishes the latest*.yml update feeds next to the installers', () => {
@@ -64,7 +63,6 @@ describe('desktop-release workflow', () => {
     expect(names(builder.mac)).toContain('zip')
     expect(names(builder.win)).toContain('nsis')
     expect(names(builder.linux)).toContain('AppImage')
-    expect(builder.publish.provider).toBe('github')
     expect(JSON.stringify(builder)).not.toContain('generateUpdatesFilesForAllChannels')
     const publish = workflow.jobs['desktop-release'].steps.find((step: { run?: string }) => step.run?.includes('--publish always'))
     expect(publish.run).toContain('electron-builder')
