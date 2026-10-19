@@ -114,6 +114,7 @@ Proof: `cd backend && python -m pytest tests/test_oidc_auth.py -k desktop_nonce`
 Proof: `cd backend-node && npx vitest run test/routes/oidc.test.ts -t "desktop_nonce"`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a desktop_nonce longer than 128 characters"` e o mesmo com `CONTRACT_STACK=node` (limite máximo acrescentado pelo Verifier; o critério acima não muda)
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D4 rejects a desktop_nonce that is not base64url"` e o mesmo com `CONTRACT_STACK=node` (o `desktop_nonce` é `[A-Za-z0-9_-]{32,128}`; o critério acima não muda)
+Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "trailing line feed, and one given twice"` e o mesmo com `CONTRACT_STACK=node` (LF final e `desktop_nonce` repetido: 400)
 
 **D5** - Sem `redirect_target` (com a lista configurada) o estado guardado é `{"nonce","code_verifier"}` (também quando só `desktop_nonce` vem na query) e o callback redireciona para `<FRONTEND_URL>/auth/oidc/callback#access_token=<jwt>&token_type=bearer`
 Proof: `cd contracts && CONTRACT_STACK=python npx vitest run tests/oidc-desktop.test.ts -t "D5 "`
@@ -213,6 +214,7 @@ Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "restores the da
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "puts the pending copy back when the restarted migration fails too"`
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "ignores a pending copy that was only half written"`
 Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "removes the half-made copy at once when the copy fails"`
+Proof: `cd desktop && npx vitest run src/main/backup.test.ts -t "removes an old .pending.tmp at the start"`
 
 **D19a** - Se o backend local não inicia (banco corrompido, saída antes do `ready`), a tela mostra `Could not start the local backend` (pt-BR `Não foi possível iniciar o backend local`) com os botões `Try again` e `Open logs` (pt-BR `Tentar de novo` e `Abrir logs`), e o banco continua com o mesmo checksum
 Proof: `cd frontend && npx vitest run src/pages/mode-select.test.tsx -t "shows the local backend failure with retry and logs actions"`
@@ -256,6 +258,17 @@ Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "r
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "a refused import writes nothing"`
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "after a crash, files and database are both before or both after"`
 Proof: `cd desktop && npx vitest run scripts/import-crash.test.ts` (processo filho real morto por SIGKILL em staged, journaled, mid-swap, swapped, restoring, committed e cleaned; depois da recuperação `db` e `files` ficam ambos antes ou ambos depois)
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "never loses what the user does after a failed import"` (falha injetada em cada operação de fs do import, com upload simulado depois)
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "a death in the middle of the recovery is finished by the next recovery"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "fails closed when the database cannot be asked"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "names an unreadable journal"`
+Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "reports a cleanup that fails after the commit as done"`
+Proof: `cd desktop && npx vitest run src/main/transfer.test.ts`
+Proof: `cd desktop && npx playwright test e2e/local.spec.ts -g "an unreadable import journal stops the local mode"` (o arquivo é `userData/import.journal.json`; o caminho vai para `userData/logs/backend.log`)
+Proof: `cd frontend && npx vitest run src/pages/mode-select.test.tsx -t "explains an unreadable import journal"`
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "rolls back a dump that the database refuses halfway"`
+Proof: `cd backend-node && npx vitest run test/local/data-transfer.test.ts -t "answers"`
+Proof: `cd desktop && npx vitest run src/main/local-backend.test.ts -t "answers whether an import committed"`
 
 **D25** - Com usuários no banco local, importar é recusado com `Import is only available on a new installation` (pt-BR `A importação só está disponível em uma instalação nova`) e nada muda (checksum do banco e dos arquivos igual)
 Proof: `cd desktop && npx vitest run src/main/export-import.test.ts -t "refuses to import when the database already has users"`
@@ -328,6 +341,9 @@ Ambiente: macOS arm64, Node 22, PostgreSQL 16 (Docker `t04-pg`, ou o do Homebrew
 - Item 4 (macOS por arquitetura): a forma do workflow e do builder é provada (`release-workflow.test.ts`); o build x64 em `macos-15-intel` e o arm64 em `macos-latest`, o addon `argon2-darwin-x64` dentro do pacote x64 e o modo local funcionando nele só o job de release prova (precisa dos segredos de assinatura e do runner Intel).
 - Rodada 2 (j): o zip inteiro é lido para a memória e o teto de 1 GiB descomprimido pode chegar perto desse valor mais o arquivo comprimido e o dump em texto (pico acima de 1 GiB); registrado, não reduzido.
 - Rodada 2: a recuperação do import depende de o PostgreSQL embutido (PGlite) recuperar uma transação interrompida ao reabrir; o teste com SIGKILL prova o caso em macOS aqui e em Linux no CI (`npm test` do `desktop-checks`), não em Windows, onde o rename de pastas abertas por outro processo pode falhar.
+- Rodada 3, SIGKILL: provado só em macOS e no processo do harness (o importador sozinho), com PGlite real; não cobre a morte do processo principal do Electron com o `utilityProcess` do backend órfão ainda com o banco aberto, nem Windows e Linux (o `npm test` do `desktop-checks` roda o harness no Linux do CI). Durabilidade em queda de energia (`fsync` do rename do journal, das pastas e do PGlite) não é provada: o journal é gravado por `.tmp` + rename mas sem `fsync`.
+- Rodada 3, PGlite: o kill no meio da execução dos dados (`restoring`) não distingue a ausência de transação, porque o PGlite descarrega para o disco de forma assíncrona e o INSERT sem transação também não chega ao disco antes do kill; a atomicidade é provada pelo teste de rollback em processo (`rolls back a dump that the database refuses halfway`, com o mutante sem `client.transaction` vermelho) e pelo ponto `precommit` do harness (que fica vermelho sem transação).
+- Rodada 3, nomes: NFC e NFD no APFS (`files/é` em duas formas) são o mesmo nome no disco e não são tratados como colisão; registrado, não corrigido.
 - D26c - Windows e Linux só no job de CI; o `launchArgs` já acrescenta `--no-sandbox` em Linux com `CI`.
 - D7a/D7b - a entrega pelo sistema operacional (macOS `open launchkit://...` com o app instalado, o registro do esquema em Windows e Linux) não é exercida: o `open-url` é emitido por `app.emit` no processo principal e o `second-instance` é um segundo processo com o link no argv. Prova o tratamento do evento, não o registro real no sistema; `setAsDefaultProtocolClient` e `protocols` são conferidos como configuração (D7c).
 - D16 - "sem rede" é a resolução de nomes bloqueada fora de loopback (`--host-resolver-rules`) mais a ausência de conexões de saída do processo do backend (`lsof`); a interface de rede não é desligada.
@@ -402,3 +418,11 @@ Corte (slices inteiras, nunca no meio):
 - Alto 3: journal + marcador `launchkit_internal.imports` + `recoverImport` no start; `check` antes de qualquer escrita; `import-old` nunca apagado sem sucesso. Vermelho: harness com a recuperação desligada derruba 7 dos 9 testes de SIGKILL; `rmSync(previous)` incondicional derruba `keeps an unsettled import-old…`. Verde com a recuperação.
 - (a) `maxEntries`: `refuses an archive with more entries than the limit` (mutante: checagem removida, vermelho). (b) segmento `.`: coberto na tabela de nomes. (c) `release-workflow.test.ts` fixa os quatro runners por flag exata. (d) limpeza do staging (escrita falha) e do `import-old` (sucesso) testadas. (e) `.pending.tmp` removido na hora quando a cópia falha (mutante vermelho). (f) a linha "nonce diferente" entrou no proof nomeado de D9a. (g) `desktop_nonce` `[A-Za-z0-9_-]{32,128}` nas duas stacks (vermelho nas duas, verde depois). (h) o teste estático de `trustedHandle` recusa qualquer menção a `ipcMain` fora do import e de `trustedHandle(ipcMain, ` (alias vira vermelho). (i) nomes reservados do Windows, ponto/espaço final e colisão por caixa recusados. (j) registrado em Local proof limits.
 - Regressão final da rodada 2: 107 comandos de proof (D1 a D27 e as linhas novas) verdes, `contracts` 243 casos em cada stack, desktop 159 unitários + 50 de Playwright, frontend 482, backend-node 104 com Redis, lint, typecheck, build e `check:web-bundle` limpos. Nada em `.github/` mudou nesta rodada. Só o CI prova: Redis 8, Windows e Linux (D26c), build x64 no runner Intel.
+
+### Correções do Verifier (rodada 3)
+
+- 1 troca de pastas: a falha de qualquer rename depois do journal desfaz na hora; se nem isso for possível o app reinicia (`ImportUnsettledError`). Vermelho: o `throw` sem `settle` (código antigo) derruba `never loses what the user does after a failed import`.
+- 2 transação: `rolls back a dump that the database refuses halfway` (FK, PK duplicada, e-mail único, NOT NULL, UUID inválido, TRUNCATE seguido de falha) com impressão digital; mutante sem `client.transaction` vermelho. Ponto `precommit` do harness vermelho sem transação; o `restoring` fica registrado como limite.
+- 3 E14: `a death in the middle of the recovery…` (falha injetada em cada operação do recovery, a partir dos estados interrompidos); mutante com o journal removido no início de `settle` vermelho.
+- 4 `ipcMain`: o teste exige um único `import { ... } from 'electron'` sem `as`, sem `import * as`, `require(`, `import(` nem menção fora de `trustedHandle(ipcMain, `; os quatro mutantes (`as rawIpc`, `require('electron').ipcMain`, `import * as el`, desestruturação) ficam vermelhos.
+- 5 `\r` e `\r\n` depois de `TRUNCATE` e de `INSERT` entraram na tabela de ataques; mutante que aceita `\r\n` vermelho. 6 LF final: já recusado nas duas stacks (`fullmatch` e `$` sem a flag `m`), agora com caso de contrato. 7 `.pending.tmp` velho: `removes an old .pending.tmp at the start` (mutante vermelho). 8 `hasImport` falha fechado: só `42P01` e `3F000` valem `false`; o processo principal lança quando o backend responde erro (mutantes vermelhos). 9 journal ilegível mostrado na tela de falha com `Open logs`, `.tmp` limpo, falha do `settle` depois do commit vira aviso. 10 comentário e asserção do nonce errado (o fluxo é gasto); mutante que preserva o fluxo vermelho. 11 `desktop_nonce` repetido: 400 nas duas stacks (vermelho: Python 307, Node 422).

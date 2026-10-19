@@ -361,3 +361,17 @@ test('import is refused on an installation with data', async () => {
   const token = await signIn(page, data.email)
   expect((await listData(page, token, data.workspaceId)).workspaces).toBeTruthy()
 })
+
+test('an unreadable import journal stops the local mode with a clear message and the logs action, and changes nothing', async () => {
+  const userDataDir = newUserDataDir({ mode: 'local' })
+  mkdirSync(path.join(userDataDir, 'files'), { recursive: true })
+  writeFileSync(path.join(userDataDir, 'files', 'mine.txt'), 'mine')
+  writeFileSync(path.join(userDataDir, 'import.journal.json'), '{ not json')
+  const before = checksumDir(path.join(userDataDir, 'files'))
+  const { page } = await launchApp({ userDataDir })
+  await expect(page.getByText('Could not start the local backend')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('alert')).toContainText('import.journal.json')
+  await expect(page.getByRole('button', { name: 'Open logs' })).toBeVisible()
+  expect(checksumDir(path.join(userDataDir, 'files'))).toBe(before)
+  expect(readFileSync(path.join(userDataDir, 'logs', 'backend.log'), 'utf8')).toContain('import.journal.json')
+})

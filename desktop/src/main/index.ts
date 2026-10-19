@@ -16,7 +16,7 @@ import { createServerConnection } from './server-connection'
 import { createSsoFlow } from './sso-flow'
 import { setupSingleInstance } from './single-instance'
 import { createSwitchServer } from './switch-server'
-import { recoverImport } from './export-import'
+import { ImportJournalError, recoverImport } from './export-import'
 import { createTransfer } from './transfer'
 import { createUpdater } from './updater'
 import { createMainWindow } from './window'
@@ -62,7 +62,7 @@ function start() {
         : path.resolve(__dirname, '..', '..', '..', 'backend-node', 'drizzle'),
       })
     let exporting = false
-    let localStart: Promise<{ ok: boolean }> | null = null
+    let localStart: Promise<{ ok: boolean; reason?: 'import-journal' }> | null = null
     // One start at a time; a failed start can be tried again.
     const startLocal = () => {
       localStart ??= localBackend
@@ -83,7 +83,8 @@ function start() {
           localStart = null
           mkdirSync(logsDir, { recursive: true })
           appendFileSync(path.join(logsDir, 'backend.log'), `[main] the local backend did not start: ${error instanceof Error ? error.message : String(error)}\n`)
-          return { ok: false }
+          // The one failure the user can act on: say which file, and show it on the failure screen.
+          return error instanceof ImportJournalError ? { ok: false, reason: 'import-journal' as const } : { ok: false }
         })
       return localStart
     }
@@ -200,6 +201,11 @@ function start() {
         mainWindow?.webContents.send(IPC.exportState, { exporting: value })
       },
       reload: () => void mainWindow?.loadURL(`${APP_ORIGIN}/`).catch(() => undefined),
+      // The folders of a failed import could not be put back: restart so the recovery runs before any use.
+      restartApp: () => {
+        app.relaunch()
+        app.exit(0)
+      },
     })
 
     // Rebuilt when the mode changes: export and import are enabled only in local mode with the backend up.

@@ -23,11 +23,15 @@ function Spinner() {
 /** Local mode: the backend has to listen before anything of the app may call it. */
 function LocalGate({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<'starting' | 'ready' | 'failed'>('starting')
+  const [reason, setReason] = useState<'import-journal' | undefined>(undefined)
 
   const run = useCallback(() => {
     getDesktopApi()
       .startLocal()
-      .then((result) => setPhase(result.ok ? 'ready' : 'failed'))
+      .then((result) => {
+        setReason(result.reason)
+        setPhase(result.ok ? 'ready' : 'failed')
+      })
       .catch(() => setPhase('failed'))
   }, [])
 
@@ -41,7 +45,7 @@ function LocalGate({ children }: { children: ReactNode }) {
   }
 
   if (phase === 'starting') return <LocalStarting />
-  if (phase === 'failed') return <LocalFailed onRetry={retry} />
+  if (phase === 'failed') return <LocalFailed onRetry={retry} reason={reason} />
   return (
     <>
       {children}

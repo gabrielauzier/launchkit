@@ -239,7 +239,8 @@
       "failedTitle": "Não foi possível iniciar o backend local",
       "failedDescription": "Seus dados não foram alterados. Tente de novo ou abra os logs para ver o que houve.",
       "retry": "Tentar de novo",
-      "openLogs": "Abrir logs"
+      "openLogs": "Abrir logs",
+      "journalUnreadable": "Uma importação de dados interrompida não pôde ser recuperada porque o registro dela na pasta de dados do app (import.journal.json) está ilegível. Abra os logs para ver o local; seus dados não foram alterados."
     },
     "transfer": {
       "exporting": "Exportando seus dados…",
@@ -253,7 +254,9 @@
       "importDone": "Importação concluída",
       "invalid": "Arquivo de exportação inválido",
       "notNew": "A importação só está disponível em uma instalação nova",
-      "importFailed": "A importação falhou"
+      "importFailed": "A importação falhou",
+      "cleanupWarning": "Alguns arquivos temporários não puderam ser removidos; eles são limpos na próxima vez que o app iniciar.",
+      "restart": "A importação não pôde ser desfeita por completo. O app vai reiniciar para terminar com segurança."
     }
   },
   "files": {

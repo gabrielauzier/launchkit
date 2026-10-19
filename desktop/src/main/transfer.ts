@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { exportData, importData } from './export-import'
+import { ImportUnsettledError, exportData, importData } from './export-import'
 import type { DataDump, RestoreResult } from './local-backend'
 import type { TransferStrings } from './menu'
 
@@ -20,6 +20,8 @@ interface Deps {
   setExporting: (exporting: boolean) => void
   /** Reloads the app after an import so it shows the restored data. */
   reload: () => void
+  /** Restarts the app (the recovery of an import runs at start). */
+  restartApp: () => void
   now?: () => Date
 }
 
@@ -66,7 +68,12 @@ export function createTransfer(deps: Deps) {
           restore: (dump, id) => deps.backend.restore(dump, id),
           hasImport: (id) => deps.backend.hasImport(id),
         })
-      } catch {
+      } catch (error) {
+        if (error instanceof ImportUnsettledError) {
+          await deps.message({ kind: 'error', text: deps.strings.restart })
+          deps.restartApp()
+          return
+        }
         await deps.message({ kind: 'error', text: deps.strings.importFailed })
         return
       }
@@ -75,6 +82,8 @@ export function createTransfer(deps: Deps) {
         return
       }
       await deps.message({ kind: 'info', text: deps.strings.importDone })
+      // The database is imported; only leftovers of the swap remain, which the next start removes.
+      if (result.warning === 'cleanup') await deps.message({ kind: 'info', text: deps.strings.cleanupWarning })
       deps.reload()
     },
   }

@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from fastapi_users import schemas
 from fastapi_users.exceptions import UserAlreadyExists
@@ -68,6 +68,7 @@ async def oidc_config():
 
 @router.get("/login")
 async def oidc_login(
+    request: Request,
     redirect_target: str | None = Query(default=None),
     desktop_nonce: str | None = Query(default=None),
 ):
@@ -83,7 +84,12 @@ async def oidc_login(
         if redirect_target not in settings.oidc_desktop_redirects:
             raise HTTPException(status_code=400, detail="Invalid redirect_target")
         # The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if desktop_nonce is None or not DESKTOP_NONCE_PATTERN.fullmatch(desktop_nonce):
+        # A nonce given twice is ambiguous (which one does the app wait for?): refused, as on the Node backend.
+        if (
+            desktop_nonce is None
+            or len(request.query_params.getlist("desktop_nonce")) > 1
+            or not DESKTOP_NONCE_PATTERN.fullmatch(desktop_nonce)
+        ):
             raise HTTPException(status_code=400, detail="Invalid desktop_nonce")
 
     state = secrets.token_urlsafe(32)

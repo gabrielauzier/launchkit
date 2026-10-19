@@ -261,7 +261,7 @@ export function oidcRoutes(ctx: AppContext) {
       }),
     )
 
-    const loginQuery = z.object({ redirect_target: z.string().optional(), desktop_nonce: z.string().optional() })
+    const loginQuery = z.object({ redirect_target: z.string().optional(), desktop_nonce: z.union([z.string(), z.array(z.string())]).optional() })
     typed.get('/api/auth/oidc/login', { schema: { querystring: loginQuery } }, async (request, reply) => {
       if (!config.oidcClientId) throw new HttpError(500, 'OIDC_CLIENT_ID is required')
       const discovery = await discover()
@@ -272,7 +272,8 @@ export function oidcRoutes(ctx: AppContext) {
       if (redirectTarget !== undefined) {
         if (!config.oidcDesktopRedirects.includes(redirectTarget)) throw new HttpError(400, 'Invalid redirect_target')
         // The app proves the deep link answers a sign-in it started with a nonce of its own.
-        if (desktopNonce === undefined || !DESKTOP_NONCE_PATTERN.test(desktopNonce)) {
+        // Given twice it is a list: ambiguous, refused (as on the Python backend).
+        if (typeof desktopNonce !== 'string' || !DESKTOP_NONCE_PATTERN.test(desktopNonce)) {
           throw new HttpError(400, 'Invalid desktop_nonce')
         }
       }

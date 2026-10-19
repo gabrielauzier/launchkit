@@ -159,6 +159,27 @@ describe('desktop sign-in: redirect_target with an allowlist', () => {
     expect(ok.status).toBe(307)
   })
 
+  it('D4 rejects a desktop_nonce with a trailing line feed, and one given twice', async () => {
+    const before = await stateKeys()
+    for (const nonce of [`${'x'.repeat(32)}\n`, `${'x'.repeat(128)}\n`]) {
+      const reply = await login(api, DESKTOP, nonce)
+      expect(reply.status, JSON.stringify(nonce)).toBe(400)
+      expect(reply.json).toEqual({ detail: 'Invalid desktop_nonce' })
+    }
+    const target = `redirect_target=${encodeURIComponent(DESKTOP)}`
+    for (const query of [
+      `${target}&desktop_nonce=${'a'.repeat(43)}&desktop_nonce=${'b'.repeat(43)}`,
+      `${target}&desktop_nonce=${'a'.repeat(43)}&desktop_nonce=short`,
+      `${target}&desktop_nonce=short&desktop_nonce=${'a'.repeat(43)}`,
+    ]) {
+      const reply = await api.get(`/api/auth/oidc/login?${query}`)
+      expect(reply.status, query).toBe(400)
+      expect(reply.json).toEqual({ detail: 'Invalid desktop_nonce' })
+      expect(reply.headers.get('location')).toBeNull()
+    }
+    expect(await stateKeys()).toEqual(before)
+  })
+
   it('D4 rejects an invalid redirect_target before it looks at the desktop_nonce', async () => {
     const reply = await login(api, 'https://evil.example/cb', null)
     expect(reply.status).toBe(400)

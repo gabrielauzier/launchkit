@@ -70,6 +70,8 @@ export interface TransferStrings {
   invalid: string
   notNew: string
   importFailed: string
+  cleanupWarning: string
+  restart: string
 }
 
 export function transferStrings(locale: string): TransferStrings {

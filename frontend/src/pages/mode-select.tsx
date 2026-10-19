@@ -38,10 +38,15 @@ export function LocalStarting() {
 }
 
 /** Shown when the local backend did not start: the data is untouched, the logs say why. */
-export function LocalFailed({ onRetry }: { onRetry: () => void }) {
+export function LocalFailed({ onRetry, reason }: { onRetry: () => void; reason?: 'import-journal' }) {
   const { t } = useTranslation()
   return (
     <ModeCard title={t('desktop.mode.failedTitle')} description={t('desktop.mode.failedDescription')}>
+      {reason === 'import-journal' && (
+        <p role="alert" className="px-8 text-sm text-muted-foreground">
+          {t('desktop.mode.journalUnreadable')}
+        </p>
+      )}
       <CardFooter className="flex flex-col gap-3 px-8 pb-8 pt-4">
         <Button className="w-full" onClick={onRetry}>
           {t('desktop.mode.retry')}
@@ -63,12 +68,16 @@ export default function ModeSelectPage({ onLocalReady }: ModeSelectPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [phase, setPhase] = useState<'choice' | 'starting' | 'failed'>('choice')
+  const [reason, setReason] = useState<'import-journal' | undefined>(undefined)
 
   const chooseThisComputer = async () => {
     setPhase('starting')
     let ok = false
+    setReason(undefined)
     try {
-      ok = (await getDesktopApi().startLocal()).ok
+      const result = await getDesktopApi().startLocal()
+      ok = result.ok
+      setReason(result.reason)
     } catch {
       ok = false
     }
@@ -81,7 +90,7 @@ export default function ModeSelectPage({ onLocalReady }: ModeSelectPageProps) {
   }
 
   if (phase === 'starting') return <LocalStarting />
-  if (phase === 'failed') return <LocalFailed onRetry={() => void chooseThisComputer()} />
+  if (phase === 'failed') return <LocalFailed onRetry={() => void chooseThisComputer()} reason={reason} />
 
   return (
     <ModeCard title={t('desktop.mode.title')} description={t('desktop.mode.description')}>

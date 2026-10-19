@@ -31,7 +31,7 @@ export interface LaunchkitApi {
   /** `null` while the choice between a server and this computer is open. */
   getMode(): Promise<'remote' | 'local' | null>
   /** Starts (or joins) the local backend; resolves once it listens or has failed. */
-  startLocal(): Promise<{ ok: boolean }>
+  startLocal(): Promise<{ ok: boolean; reason?: 'import-journal' }>
   /** Opens the folder with the local backend's logs. */
   openLogs(): Promise<void>
   /** Tells whether an export is running (the interface locks while it does); returns an unsubscribe. */

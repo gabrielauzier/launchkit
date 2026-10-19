@@ -81,6 +81,25 @@ describe('mode choice screen', () => {
     }
   })
 
+  it('explains an unreadable import journal on the failure screen, with the logs action, and not otherwise', async () => {
+    for (const [language, text, logs] of [
+      ['en', /import\.journal\.json/, 'Open logs'],
+      ['pt-BR', /import\.journal\.json/, 'Abrir logs'],
+    ] as const) {
+      await i18n.changeLanguage(language)
+      const api = installDesktopApi(vi.fn().mockResolvedValueOnce({ ok: false, reason: 'import-journal' }).mockResolvedValueOnce({ ok: false }))
+      const { user, unmount } = renderPage()
+      await user.click(screen.getByRole('button', { name: language === 'en' ? 'Use this computer' : 'Usar neste computador' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(text)
+      await user.click(screen.getByRole('button', { name: logs }))
+      expect(api.openLogs).toHaveBeenCalledTimes(1)
+      // A failure without that reason shows no such line.
+      await user.click(screen.getByRole('button', { name: language === 'en' ? 'Try again' : 'Tentar de novo' }))
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+      unmount()
+    }
+  })
+
   it('connect to a server leads to the connect screen', async () => {
     installDesktopApi(vi.fn())
     const { user } = renderPage()
