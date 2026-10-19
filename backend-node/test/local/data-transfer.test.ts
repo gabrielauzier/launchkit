@@ -62,4 +62,45 @@ describe('data transfer', () => {
     await expect(restoreData(target, { schemaRevision: 999, sql: '' })).rejects.toBeInstanceOf(InvalidDumpError)
     void sql
   })
+
+  const USER = `INSERT INTO "users" ("id", "email", "hashed_password", "is_active", "is_superuser", "is_verified", "is_2fa_enabled") VALUES ('11111111-1111-1111-1111-111111111111', 'a@b.c', 'x', 'true', 'false', 'true', 'false');`
+
+  it('refuses a dump with transaction control or statements outside the dump grammar, leaving the database untouched', async () => {
+    const hostile: Array<[string, string]> = [
+      ['commit in the middle', `${USER}\nCOMMIT;\nDROP TABLE workspaces;\nINSERT INTO nowhere VALUES (1);`],
+      ['commit then failure', `${USER}\nCOMMIT;\nINSERT INTO "nowhere" ("a") VALUES ('1');`],
+      ['rollback and begin', `BEGIN;\n${USER}\nROLLBACK;`],
+      ['ddl', `DROP TABLE "workspaces";`],
+      ['alter', `ALTER TABLE "users" ADD COLUMN "x" text;`],
+      ['create', `CREATE TABLE "evil" ("a" int);`],
+      ['update', `UPDATE "users" SET "email" = 'x';`],
+      ['delete', `DELETE FROM "users";`],
+      ['select', `SELECT pg_sleep(0);`],
+      ['function call in values', `INSERT INTO "users" ("id") VALUES (pg_sleep(0));`],
+      ['two statements in one line', `${USER} DROP TABLE "users";`],
+      ['insert into another schema', `INSERT INTO "drizzle"."__drizzle_migrations" ("id") VALUES ('1');`],
+      ['truncate another schema', `TRUNCATE "drizzle"."__drizzle_migrations" CASCADE;`],
+      ['comment hiding a statement', `-- ok\n${USER}\n/* x */ DROP TABLE "users";`],
+      ['unterminated literal', `INSERT INTO "users" ("id") VALUES ('1);`],
+      ['copy', `COPY "users" FROM STDIN;`],
+    ]
+    const target = await fresh()
+    const before = await counts(target)
+    const schemaBefore = (await target.query<{ n: number }>(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`)).rows[0]!.n
+    for (const [label, text] of hostile) {
+      await expect(restoreData(target, { schemaRevision: 1, sql: text }), label).rejects.toBeInstanceOf(InvalidDumpError)
+      expect(await counts(target), label).toEqual(before)
+    }
+    const schemaAfter = (await target.query<{ n: number }>(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`)).rows[0]!.n
+    expect(schemaAfter).toBe(schemaBefore)
+  })
+
+  it('still restores literals that contain semicolons, newlines and keywords', async () => {
+    const source = await fresh()
+    await source.exec(`INSERT INTO users (id, email, hashed_password, is_active, is_superuser, is_verified, is_2fa_enabled, preferences) VALUES ('11111111-1111-1111-1111-111111111111', 'a@b.c', 'x', true, false, true, false, '{"n":"COMMIT; DROP TABLE x;\\nline -- two"}')`)
+    const target = await fresh()
+    await restoreData(target, await dumpData(source))
+    const row = await target.query<{ preferences: { n: string } }>(`SELECT preferences FROM users`)
+    expect(row.rows[0]?.preferences.n).toBe('COMMIT; DROP TABLE x;\nline -- two')
+  })
 })
