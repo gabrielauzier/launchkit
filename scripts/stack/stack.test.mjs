@@ -101,6 +101,35 @@ for (const name of ['preflight', 'launchkitCompose', 'install']) {
   })
 }
 
+// The environment wins over the env file, like in Compose (no Docker needed: a fake `docker` exits 0).
+function precedence(envValue, fileValue) {
+  const dir = mkdtempSync(join(tmpdir(), 't02-c3p-'))
+  const envFile = join(dir, 'env')
+  writeFileSync(envFile, `SECRET_KEY=x\nBACKEND_STACK=${fileValue}\n`)
+  const bin = join(dir, 'bin')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n')
+  chmodSync(join(bin, 'docker'), 0o755)
+  const env = { ...process.env, BACKEND_STACK: envValue, PATH: `${bin}:${process.env.PATH}`, LAUNCHKIT_ENV_FILE: envFile }
+  return {
+    preflight: spawnSync('sh', [join(ROOT, 'scripts/stack/preflight.sh'), envFile], { env, encoding: 'utf8' }),
+    launchkitCompose: spawnSync(join(ROOT, 'deploy/public/launchkit-compose'), ['config', '-q'], { env, encoding: 'utf8' }),
+  }
+}
+
+for (const name of ['preflight', 'launchkitCompose']) {
+  test(`C3 ${name}: BACKEND_STACK=go in the environment is refused even when the env file says node`, () => {
+    const result = precedence('go', 'node')[name]
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.match(result.stderr, GO_MESSAGE)
+  })
+
+  test(`C3 ${name}: BACKEND_STACK=node in the environment wins over go in the env file (Compose rule)`, () => {
+    const result = precedence('node', 'go')[name]
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+  })
+}
+
 test('C3 python, node and an unset BACKEND_STACK pass the preflight', () => {
   for (const value of ['python', 'node', undefined]) {
     const env = { ...process.env }

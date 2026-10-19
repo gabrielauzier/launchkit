@@ -38,6 +38,7 @@ Proofs do CI de PR: `python3 .github/ci/test_changes.py`, `python3 .github/ci/te
 
 - **C3** - `BACKEND_STACK=go`: `docker compose up` falha antes de criar containers (0 containers) com o erro nativo que aponta o `go.yml` inexistente; `install.sh`, `launchkit-compose` e o preflight do CI imprimem `BACKEND_STACK must be python or node (got: go)` e saem com 2
 Proof: `node --test --test-name-pattern='^C3 ' scripts/stack/stack.test.mjs` (4 casos: `docker compose -p t02-c3 up` com `go`: exit ≠ 0, saída cita `go.yml`, `ps -a -q` vazio; `install.sh` com `BACKEND_STACK=go` no ambiente; `launchkit-compose` com env-file `BACKEND_STACK=go`; `scripts/stack/preflight.sh`: cada um com exit 2 e a frase em stderr; valores `python`, `node` e ausente passam com exit 0)
+Precedência (sem Docker, `docker` falso): `BACKEND_STACK=go` no ambiente com env-file `node` => exit 2 e a frase; `node` no ambiente com env-file `go` => exit 0 (o ambiente vale, como no Compose), para `preflight.sh` e `launchkit-compose`. Mutante `STACK=""`/`value=""` (ignora o ambiente) derruba 4 casos.
 Também: `docker compose up` sem `.env` e sem `BACKEND_STACK` (C2 ausente) continua subindo a stack Python.
 
 **C4** - `BACKEND_STACK=node`: `GET http://localhost:<FRONTEND_PORT>/api/health` 200 `{"status":"healthy"}`, e o frontend alcança a API em `http://backend:8000`
