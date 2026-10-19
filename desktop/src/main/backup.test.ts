@@ -112,7 +112,7 @@ describe('migration backups', () => {
       run: () => {
         writeFileSync(path.join(dbDir(), 'base', 'rel-1'), 'half migrated')
         writeFileSync(path.join(dbDir(), 'base', 'rel-2'), 'new table')
-        return new Promise(() => undefined)
+        return new Promise<{ migrationsApplied: number }>(() => undefined)
       },
     })
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -142,7 +142,7 @@ describe('migration backups', () => {
       userData,
       run: () => {
         writeFileSync(path.join(dbDir(), 'base', 'rel-1'), 'half migrated')
-        return new Promise(() => undefined)
+        return new Promise<{ migrationsApplied: number }>(() => undefined)
       },
     })
     await new Promise((resolve) => setTimeout(resolve, 100))
