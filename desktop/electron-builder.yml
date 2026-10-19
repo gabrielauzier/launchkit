@@ -21,12 +21,9 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
   grantFileProtocolExtraPrivileges: false
-# Releases live in their own repository, set per environment (the release
-# workflow splits vars.LAUNCHKIT_DESKTOP_RELEASE_REPO into these two).
-publish:
-  provider: github
-  owner: ${env.LAUNCHKIT_DESKTOP_RELEASE_OWNER}
-  repo: ${env.LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}
+# `publish` is not set here: the release workflow passes it as -c.publish.*
+# flags (releases live in their own repository), so unpublished package builds
+# need no release variables.
 mac:
   category: public.app-category.productivity
   # Signing and notarization read CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID,
