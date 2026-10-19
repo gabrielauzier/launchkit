@@ -176,12 +176,13 @@ function checkStatement(tokens: Token[]): void {
  */
 export async function restoreData(client: PGlite, dump: DataDump): Promise<void> {
   if (dump.schemaRevision > (await schemaRevision(client))) throw new InvalidDumpError('the export comes from a newer version')
-  const users = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "users"')
-  if ((users.rows[0]?.n ?? 0) > 0) throw new NotANewInstallationError()
+  // A dump is judged on its own text first, whatever the database holds.
   // Nothing runs before the whole text is known to be the dump's own grammar: a `COMMIT;` in the
   // file would end the transaction below and keep what came before it.
   const statements = tokenize(dump.sql)
   for (const statement of statements) checkStatement(statement)
+  const users = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM "users"')
+  if ((users.rows[0]?.n ?? 0) > 0) throw new NotANewInstallationError()
   try {
     await client.transaction(async (tx) => {
       await tx.exec(dump.sql)
