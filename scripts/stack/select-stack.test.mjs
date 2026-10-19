@@ -3,11 +3,11 @@
 // C14 honours ONLY_STACK=python|node (the CI matrix runs one stack per job).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { ROOT } from './lib.mjs'
+import { ROOT, containerArgs, dockerRun } from './lib.mjs'
 
 const SCOPE = ['docker-compose.yml', 'docker-compose.prod.yml', 'compose', '.github', 'charts', 'README.md', 'CONTRIBUTING.md', 'mise.toml', 'renovate.json', '.pre-commit-config.yaml']
 const PYTHON_WORDS = 'celery|alembic|uvicorn|pytest|ruff'
@@ -33,9 +33,7 @@ function grepScope(dir, words) {
   return result.stdout.split('\n').filter(Boolean)
 }
 
-function docker(dir, image, args) {
-  return spawnSync('docker', ['run', '--rm', '-v', `${dir}:/w`, '-w', '/w', image, ...args], { encoding: 'utf8' })
-}
+const docker = dockerRun
 
 test('C12 select-stack node removes backend/ and contracts/ and leaves no Python word in scope', () => {
   const dir = copy()
@@ -83,6 +81,17 @@ for (const stack of ['python', 'node']) {
     }
   })
 }
+
+test('C14 the copy handed to a container is readable by another user', () => {
+  const dir = copy() // mkdtemp creates it 0700; the clone's files can be 0600 under a restrictive umask
+  chmodSync(dir, 0o700)
+  chmodSync(join(dir, '.github/workflows/release.yml'), 0o600)
+  assert.equal(statSync(dir).mode & 0o055, 0, 'precondition: restrictive copy')
+  const args = containerArgs(dir)
+  assert.equal(statSync(dir).mode & 0o055, 0o055)
+  assert.equal(statSync(join(dir, '.github/workflows/release.yml')).mode & 0o044, 0o044)
+  assert.deepEqual(args.slice(0, 2), ['--user', `${process.getuid()}:${process.getgid()}`])
+})
 
 test('C15 no --stack or an invalid value exits 2 with the usage', () => {
   const dir = copy()

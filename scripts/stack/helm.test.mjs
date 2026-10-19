@@ -1,18 +1,19 @@
 // Proofs C8-C9: the Helm chart per backend stack, rendered with the alpine/helm image.
 //   node --test --test-name-pattern='^C8 ' scripts/stack/helm.test.mjs
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { ROOT, sh } from './lib.mjs'
+import { ROOT, dockerRun, sh } from './lib.mjs'
 
 // The chart as it was before the stack choice existed (task 02 branch point).
 const BASELINE_COMMIT = '91cc000'
 
 function helm(dir, ...args) {
-  return execFileSync('docker', ['run', '--rm', '-v', `${dir}:/w`, '-w', '/w', 'alpine/helm:4.3.0', ...args], { encoding: 'utf8' })
+  const result = dockerRun(dir, 'alpine/helm:4.3.0', args)
+  if (result.status !== 0) throw new Error(`helm ${args.join(' ')} failed:\n${result.stdout}${result.stderr}`)
+  return result.stdout
 }
 
 test('C8 backend.stack=node renders the Node image and commands, no celery or alembic, and lints', () => {

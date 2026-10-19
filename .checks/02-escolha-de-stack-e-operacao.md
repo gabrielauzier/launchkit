@@ -32,6 +32,7 @@ Proofs do CI de PR: `python3 .github/ci/test_changes.py`, `python3 .github/ci/te
 - C20 e C21 são jobs do GitHub: localmente se prova o mesmo comando que o job chama (`node --test ... stack.test.mjs` com `-t` dos casos 1, 2, 4, 17, 18; `select-stack` + C14 em cópia) e, em `test_workflow_jobs.py`, que o job existe e chama esse comando. Que o GitHub o execute só se vê no CI.
 - C10 (`release.yml`) só roda no GitHub: o proof é de texto do workflow + `actionlint`.
 - `podman-compose` não é testado (decisão do usuário).
+- O `permission denied` dos contêineres do C14 num runner com outro uid só se vê no CI; localmente prova-se (sem Docker) que a cópia fica legível por outro usuário (`C14 the copy handed to a container is readable by another user`, vermelho sem o `chmod`).
 - C6 prova a migration falhando com banco inválido (exit ≠ 0 e a API não chega a escutar), num `docker compose run`; não prova `/api/health` sem resposta 200 num container de longa duração.
 
 ## Decisões do mantenedor durante o build (`.tasks` atualizado em b6bb342)

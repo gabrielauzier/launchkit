@@ -68,3 +68,17 @@ export function dockerLogs(name) {
 export function sh(command, args, options = {}) {
   return execFileSync(command, args, { cwd: ROOT, encoding: 'utf8', ...options })
 }
+
+/**
+ * Docker arguments for tools that read a directory we created: the copy is made world readable and the
+ * container runs as the caller, so a runner whose uid differs from the image's user (0700 temp dirs,
+ * 0600 files) still reads and writes it. HOME points at a writable place for helm's cache.
+ */
+export function containerArgs(dir) {
+  execFileSync('chmod', ['-R', 'u+rwX,go+rX', dir])
+  return ['--user', `${process.getuid()}:${process.getgid()}`, '-e', 'HOME=/tmp', '-v', `${dir}:/w`, '-w', '/w']
+}
+
+export function dockerRun(dir, image, args, options = {}) {
+  return spawnSync('docker', ['run', '--rm', ...containerArgs(dir), image, ...args], { encoding: 'utf8', ...options })
+}
