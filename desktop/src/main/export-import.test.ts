@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,5 +80,40 @@ describe('export and import', () => {
     const restore = vi.fn(async () => ({ ok: false as const, reason: 'has-users' as const }))
     expect(await importData({ source: target, filesDir, restore })).toEqual({ ok: false, reason: 'not-new' })
     expect(checksumDir(filesDir)).toBe(before)
+  })
+
+  it('puts the old files back when the restore fails or throws', async () => {
+    const target = await exported()
+    for (const restore of [vi.fn(async () => ({ ok: false as const, reason: 'invalid' as const })), vi.fn(async () => { throw new Error('backend died') })]) {
+      const filesDir = filesWith({ 'keep.txt': 'untouched', 'sub/deep.txt': 'x' })
+      const before = checksumDir(filesDir)
+      await importData({ source: target, filesDir, restore }).catch(() => undefined)
+      expect(checksumDir(filesDir)).toBe(before)
+      expect(existsSync(`${filesDir}.import-new`)).toBe(false)
+      expect(existsSync(`${filesDir}.import-old`)).toBe(false)
+    }
+  })
+
+  it('refuses a hostile archive before the restore or any write', async () => {
+    const manifest = { name: 'manifest.json', data: Buffer.from(JSON.stringify({ formatVersion: 1, appVersion: '1', schemaRevision: 1 })) }
+    const db = { name: 'db.sql', data: Buffer.from('') }
+    const hostile: Array<[string, Array<{ name: string; data: Buffer }>]> = [
+      ['duplicate', [manifest, db, { name: 'files/a', data: Buffer.from('1') }, { name: 'files/a', data: Buffer.from('2') }]],
+      ['empty segment', [manifest, db, { name: 'files//x', data: Buffer.from('1') }]],
+      ['drive', [manifest, db, { name: 'files/C:/x', data: Buffer.from('1') }]],
+      ['stream', [manifest, db, { name: 'files/x:ads', data: Buffer.from('1') }]],
+      ['nul', [manifest, db, { name: 'files/a\0b', data: Buffer.from('1') }]],
+      ['file and folder', [manifest, db, { name: 'files/a', data: Buffer.from('1') }, { name: 'files/a/b', data: Buffer.from('2') }]],
+    ]
+    for (const [label, entries] of hostile) {
+      const source = path.join(root, 'hostile.zip')
+      writeFileSync(source, writeZip(entries))
+      const filesDir = filesWith({ 'keep.txt': 'untouched' })
+      const before = checksumDir(filesDir)
+      const restore = vi.fn(async () => ({ ok: true as const }))
+      expect(await importData({ source, filesDir, restore }), label).toEqual({ ok: false, reason: 'invalid' })
+      expect(restore, label).not.toHaveBeenCalled()
+      expect(checksumDir(filesDir), label).toBe(before)
+    }
   })
 })

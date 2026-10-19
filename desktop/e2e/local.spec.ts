@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { checksumDir } from '../src/main/test-support'
-import { readZip } from '../src/main/zip'
+import { readZip, writeZip } from '../src/main/zip'
 import { startTestServer, type TestServer } from './support/test-server'
 import { closeAll, launchApp, newUserDataDir, readConfig } from './support/launch'
 import { api, backendPids, backendPort, clickMenu, createLocalData, dialogState, isAlive, listData, releaseSave, signIn, startLocalMode, stubDialogs } from './support/local'
@@ -317,6 +317,20 @@ test('an invalid export file shows the error and keeps the database', async () =
   const bad = [
     ['plain.zip', Buffer.from('this is not a zip')],
     ['truncated.zip', Buffer.from('PK\u0003\u0004 half a zip')],
+    // A COMMIT in the middle must not keep what came before it.
+    [
+      'commit.zip',
+      writeZip([
+        { name: 'manifest.json', data: Buffer.from(JSON.stringify({ formatVersion: 1, appVersion: '1', schemaRevision: 1 })) },
+        {
+          name: 'db.sql',
+          data: Buffer.from(
+            `INSERT INTO "users" ("id", "email", "hashed_password", "is_active", "is_superuser", "is_verified", "is_2fa_enabled") VALUES ('33333333-3333-3333-3333-333333333333', 'x@y.z', 'x', 'true', 'false', 'true', 'false');\nCOMMIT;\nDROP TABLE workspaces;\nINSERT INTO nowhere VALUES (1);\n`,
+          ),
+        },
+        { name: 'files/new.txt', data: Buffer.from('should not stay') },
+      ]),
+    ],
   ] as const
   for (const [name, bytes] of bad) {
     const source = path.join(dir, name)

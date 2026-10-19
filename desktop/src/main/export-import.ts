@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { DataDump, RestoreResult } from './local-backend'
 import { readZip, writeZip, ZipError, type ZipEntry } from './zip'
@@ -67,9 +67,11 @@ function parseExport(source: string): { manifest: Manifest; sql: string; files: 
 }
 
 /**
- * Imports an export into a new installation. Nothing is touched until the archive and its manifest
- * check out; the backend then restores the database all or nothing and refuses one that has users,
- * and only after that the files are written.
+ * Imports an export into a new installation, all or nothing. The archive is read and checked first
+ * (names, sizes, checksums, manifest); `files/` is written to a folder beside the real one and swapped
+ * in, the backend then restores the database in one transaction (and refuses one that has users or a
+ * dump outside the dump's grammar). Any failure swaps the old files back, so `db` and `files` end up
+ * exactly as they were.
  */
 export async function importData(options: {
   source: string
@@ -78,12 +80,42 @@ export async function importData(options: {
 }): Promise<ImportResult> {
   const parsed = parseExport(options.source)
   if (!parsed) return { ok: false, reason: 'invalid' }
-  const restored = await options.restore({ sql: parsed.sql, schemaRevision: parsed.manifest.schemaRevision })
-  if (!restored.ok) return { ok: false, reason: restored.reason === 'has-users' ? 'not-new' : 'invalid' }
-  for (const entry of parsed.files) {
-    const target = path.join(options.filesDir, ...entry.name.slice('files/'.length).split('/'))
-    mkdirSync(path.dirname(target), { recursive: true })
-    writeFileSync(target, entry.data)
+
+  const staging = `${options.filesDir}.import-new`
+  const previous = `${options.filesDir}.import-old`
+  rmSync(staging, { recursive: true, force: true })
+  rmSync(previous, { recursive: true, force: true })
+  try {
+    mkdirSync(staging, { recursive: true })
+    for (const entry of parsed.files) {
+      const target = path.join(staging, ...entry.name.slice('files/'.length).split('/'))
+      mkdirSync(path.dirname(target), { recursive: true })
+      writeFileSync(target, entry.data)
+    }
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true })
+    throw error
   }
+
+  const hadFiles = existsSync(options.filesDir)
+  if (hadFiles) renameSync(options.filesDir, previous)
+  renameSync(staging, options.filesDir)
+  const revert = () => {
+    rmSync(options.filesDir, { recursive: true, force: true })
+    if (hadFiles) renameSync(previous, options.filesDir)
+  }
+
+  let restored: RestoreResult
+  try {
+    restored = await options.restore({ sql: parsed.sql, schemaRevision: parsed.manifest.schemaRevision })
+  } catch (error) {
+    revert()
+    throw error
+  }
+  if (!restored.ok) {
+    revert()
+    return { ok: false, reason: restored.reason === 'has-users' ? 'not-new' : 'invalid' }
+  }
+  rmSync(previous, { recursive: true, force: true })
   return { ok: true }
 }
