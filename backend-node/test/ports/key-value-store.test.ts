@@ -50,6 +50,14 @@ function describeStore(name: string, make: () => Promise<{ store: KeyValueStore;
       expect(await store.rateLimitHit(k, now + 64, 60)).toBe(1)
     })
 
+    it('C39 rateLimitHit counts two hits at the same instant twice', async () => {
+      const k = key('same-instant')
+      const now = 2_000_000.123
+      expect(await store.rateLimitHit(k, now, 60)).toBe(0)
+      expect(await store.rateLimitHit(k, now, 60)).toBe(1)
+      expect(await store.rateLimitHit(k, now, 60)).toBe(2)
+    })
+
     if (!real) {
       it('C39 a value with a TTL expires', async () => {
         vi.useFakeTimers()
