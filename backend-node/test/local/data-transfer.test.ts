@@ -246,4 +246,13 @@ describe('data transfer', () => {
     open.splice(open.indexOf(client), 1)
     await expect(hasImport(client, 'x')).rejects.toThrow()
   })
+
+  it('treats only 42P01 and 3F000 as "no marker yet" and propagates every other error code', async () => {
+    const failing = (code: string) => ({ query: async () => { throw Object.assign(new Error(`error ${code}`), { code }) } }) as never
+    for (const code of ['42P01', '3F000']) expect(await hasImport(failing(code), 'x'), code).toBe(false)
+    for (const code of ['42501', '42703', '42601', '42883', '08006', '57P01', 'XX000']) {
+      await expect(hasImport(failing(code), 'x'), code).rejects.toThrow(`error ${code}`)
+    }
+    await expect(hasImport({ query: async () => { throw new Error('no code at all') } } as never, 'x')).rejects.toThrow('no code at all')
+  })
 })

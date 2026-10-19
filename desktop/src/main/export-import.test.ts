@@ -2,6 +2,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createTransfer } from './transfer'
+import { transferStrings } from './menu'
 import { ImportJournalError, ImportUnsettledError, exportData, importData, recoverImport, type ImportHooks } from './export-import'
 import type { RestoreResult } from './local-backend'
 import { readZip, writeZip } from './zip'
@@ -9,13 +11,13 @@ import { checksumDir } from './test-support'
 
 // Counts the fs operations the importer and the recovery perform and can make the n-th one throw,
 // to see what a failure (or a death) at each step leaves behind.
-const faults = vi.hoisted(() => ({ failAt: -1, count: 0, after: -1 }))
+const faults = vi.hoisted(() => ({ failAt: -1, failFrom: -1, count: 0, after: -1 }))
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()
   const guard = <F extends (...args: never[]) => unknown>(fn: F): F =>
     ((...args: Parameters<F>) => {
       faults.count++
-      if (faults.failAt === faults.count) throw new Error('injected fs failure')
+      if (faults.failAt === faults.count || (faults.failFrom > 0 && faults.count >= faults.failFrom)) throw new Error('injected fs failure')
       if (faults.after === 0) throw new Error('disk full')
       if (faults.after > 0) faults.after--
       return fn(...args)
@@ -34,6 +36,7 @@ let root = ''
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'launchkit-export-'))
   faults.failAt = -1
+  faults.failFrom = -1
   faults.count = 0
   faults.after = -1
 })
@@ -470,4 +473,79 @@ describe('a failure at each step of the import and of the recovery', () => {
     expect(read(filesDir)).toEqual({ 'new.txt': 'imported' })
     expect(leftovers(filesDir)).toEqual([])
   })
+
+  // Every fs operation fails from the n-th on (a disk that went away, not a hiccup): the import must end
+  // either with nothing changed, or asking the app to restart so the recovery runs before anything is used.
+  const VARIANTS: Array<[string, (state: { committed: boolean }) => Backend]> = [
+    ['restore ok', (state) => ({ restore: async () => ((state.committed = true), OK), hasImport: async () => state.committed })],
+    ['restore refuses', () => ({ restore: async () => ({ ok: false, reason: 'invalid' }) })],
+    ['restore throws, database answers no', () => ({ restore: async () => { throw new Error('backend died') }, hasImport: async () => false })],
+    ['restore throws after the commit, database answers yes', (state) => ({ restore: async () => { state.committed = true; throw new Error('reply lost') }, hasImport: async () => true })],
+    ['restore throws, database cannot answer', () => ({ restore: async () => { throw new Error('backend died') }, hasImport: async () => { throw new Error('cannot ask') } })],
+  ]
+
+  for (const hadFiles of [true, false]) {
+    for (const [variant, make] of VARIANTS) {
+      it(`persistent fs failure from each operation on (${variant}, hadFiles=${hadFiles}): original, imported, or a restart`, async () => {
+        const target = await exported({ 'new.txt': 'imported' })
+        const userData = path.join(root, 'userData')
+        let total = 0
+        let restarts = 0
+        for (let from = 0; from <= total; from++) {
+          rmSync(userData, { recursive: true, force: true })
+          // The transfer works on userData/files, like the app.
+          const filesDir = path.join(userData, 'files')
+          mkdirSync(userData, { recursive: true })
+          if (hadFiles) cpSync(filesWith(ORIGINAL), filesDir, { recursive: true })
+          const state = { committed: false }
+          const backend = make(state)
+          const restartApp = vi.fn()
+          const transfer = createTransfer({
+            strings: transferStrings('en'),
+            userData,
+            appVersion: '1',
+            backend: { dump: vi.fn(), check: backend.check ?? (async () => OK), restore: backend.restore ?? (async () => OK), hasImport: backend.hasImport ?? (async () => false) } as never,
+            chooseSavePath: vi.fn(),
+            chooseOpenPath: async () => target,
+            message: async () => true,
+            setExporting: vi.fn(),
+            reload: vi.fn(),
+            restartApp,
+          })
+          faults.count = 0
+          faults.failFrom = from
+          await transfer.importData()
+          faults.failFrom = -1
+          if (from === 0) total = faults.count
+          const label = `${variant} hadFiles=${hadFiles} failing from operation ${from} of ${total}`
+
+          if (restartApp.mock.calls.length > 0) restarts++
+          else {
+            // No restart was asked: the state must already be safe to use. Either no journal, or the import committed.
+            const unsafe = existsSync(journalOf()) && !state.committed
+            expect(unsafe, `${label}: the session would go on over a half-swapped state`).toBe(false)
+            if (!state.committed) expect(hadFiles ? read(filesDir) : existsSync(filesDir), label).toEqual(hadFiles ? ORIGINAL : false)
+          }
+
+          // What the user does next (nothing, after a restart), then the next start.
+          let upload = false
+          if (restartApp.mock.calls.length === 0) {
+            mkdirSync(filesDir, { recursive: true })
+            writeFileSync(path.join(filesDir, 'upload.txt'), 'made after the import')
+            upload = true
+          }
+          await recoverImport({ userData, filesDir, hasImport: async () => state.committed })
+          const after = read(filesDir)
+          if (upload) expect(after['upload.txt'], `${label}: the upload was lost`).toBe('made after the import')
+          delete after['upload.txt']
+          if (state.committed) expect(after, label).toEqual({ 'new.txt': 'imported' })
+          else if (hadFiles) expect(after, label).toEqual(ORIGINAL)
+          else expect(after, label).toEqual({})
+          expect(leftovers(filesDir), label).toEqual([])
+        }
+        expect(total).toBeGreaterThan(5)
+        expect(restarts, 'at least one failure point needs the restart').toBeGreaterThan(0)
+      })
+    }
+  }
 })

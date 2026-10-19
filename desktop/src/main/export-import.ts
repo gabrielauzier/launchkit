@@ -214,7 +214,12 @@ export async function importData(options: {
     renameSync(staging, options.filesDir)
     await at('swapped')
   } catch (error) {
-    rmSync(`${journalFile}.tmp`, { force: true })
+    // Nothing here may throw past `undo`: with a failing disk that would leave the half-swapped folders in use.
+    try {
+      rmSync(`${journalFile}.tmp`, { force: true })
+    } catch {
+      // The recovery removes a leftover journal.tmp.
+    }
     return undo(error, false)
   }
 

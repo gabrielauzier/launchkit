@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { IPC } from '../shared/ipc'
 import { trustedHandle, type IpcLike } from './ipc'
@@ -79,6 +79,23 @@ describe('every ipc channel the main process serves', () => {
       expect(handler).not.toHaveBeenCalled()
       listener({ senderFrame: { url: 'app://launchkit/login' } })
       expect(handler).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('is the only place in the main process and the preload that names ipcMain', () => {
+    const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? walk(path.join(dir, entry.name)) : /\.(ts|mts|cts|js|mjs|cjs)$/.test(entry.name) && !/\.test\./.test(entry.name) ? [path.join(dir, entry.name)] : [],
+      )
+    const files = [...walk(path.resolve(__dirname)), ...walk(path.resolve(__dirname, '../preload'))]
+    expect(files.length).toBeGreaterThan(10)
+    for (const file of files) {
+      const code = stripComments(readFileSync(file, 'utf8'))
+      const label = path.relative(path.resolve(__dirname, '..'), file)
+      if (path.basename(file) !== 'index.ts' || !file.includes(`${path.sep}main${path.sep}`)) expect(code, label).not.toMatch(/\bipcMain\b/)
+      expect(code, label).not.toMatch(/\.handle(Once)?\s*\(\s*IPC\./)
+      expect(code, label).not.toMatch(/require\s*\(\s*['"]electron['"]/)
     }
   })
 })
