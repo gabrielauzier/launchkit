@@ -44,9 +44,17 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          # select-stack:begin node
           cache-dependency-path: |
             frontend/package-lock.json
             desktop/package-lock.json
+            backend-node/package-lock.json
+          # select-stack:end
+          # select-stack:begin python
+          #~ cache-dependency-path: |
+          #~   frontend/package-lock.json
+          #~   desktop/package-lock.json
+          # select-stack:end
 
       - name: Check the tag matches the desktop version
         shell: bash
@@ -107,6 +115,13 @@ jobs:
         run: |
           npm ci --prefix frontend
           npm ci --prefix desktop
+
+      # select-stack:begin node
+      # `npm run build:backend` bundles backend-node/src with esbuild: its packages must be there.
+      - name: Install the local backend's dependencies
+        shell: bash
+        run: npm ci --prefix backend-node
+      # select-stack:end
 
       - name: Build the app
         working-directory: desktop

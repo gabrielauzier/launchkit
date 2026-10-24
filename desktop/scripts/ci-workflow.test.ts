@@ -7,6 +7,7 @@ interface Step {
   name?: string
   run?: string
   uses?: string
+  with?: Record<string, string>
   if?: string
   'continue-on-error'?: boolean
 }
@@ -82,4 +83,26 @@ describe('ci workflow', () => {
       expect(gated.length, name).toBeGreaterThan(3)
     }
   })
+
+  // The local backend is bundled by esbuild from backend-node/src: a clean runner has no
+  // backend-node/node_modules, so each job installs them before anything that builds or tests the app.
+  const BUILDS = /build:backend|build:all|package:|npm test|test:e2e/
+  for (const name of ['desktop-checks', 'desktop-e2e']) {
+    it(`${name} installs backend-node before the first step that builds or tests the app`, () => {
+      const job = ci.jobs[name]
+      const first = job.steps.findIndex((step) => step.run && BUILDS.test(step.run))
+      expect(first, 'a build step').toBeGreaterThan(-1)
+      const setup = job.steps.find((step) => step.uses?.startsWith('actions/setup-node'))
+      const installs = job.steps.flatMap((step, index) => (step.run && /npm ci --prefix \.\.\/backend-node/.test(step.run) ? [index] : []))
+      // select-stack:begin node
+      expect(installs, 'npm ci --prefix ../backend-node').toHaveLength(1)
+      expect(installs[0]).toBeLessThan(first)
+      expect(setup?.with?.['cache-dependency-path']).toContain('backend-node/package-lock.json')
+      // select-stack:end
+      // select-stack:begin python
+      //~ expect(installs).toEqual([])
+      //~ expect(setup?.with?.['cache-dependency-path']).not.toContain('backend-node')
+      // select-stack:end
+    })
+  }
 })

@@ -104,4 +104,22 @@ describe('desktop-release workflow', () => {
       expect(sign.env[name], name).toContain("runner.os == 'Windows'")
     }
   })
+
+  it('installs backend-node before the app is built (the bundled local backend needs its packages)', () => {
+    const job = workflow.jobs['desktop-release']
+    const steps = job.steps as Array<{ run?: string; uses?: string; with?: Record<string, string> }>
+    const first = steps.findIndex((step) => step.run && /build:backend|build:all|package:|npm test|electron-builder/.test(step.run))
+    expect(first, 'a build step').toBeGreaterThan(-1)
+    const setup = steps.find((step) => step.uses?.startsWith('actions/setup-node'))
+    const installs = steps.flatMap((step, index) => (step.run && /npm ci --prefix backend-node/.test(step.run) ? [index] : []))
+    // select-stack:begin node
+    expect(installs, 'npm ci --prefix backend-node').toHaveLength(1)
+    expect(installs[0]).toBeLessThan(first)
+    expect(setup?.with?.['cache-dependency-path']).toContain('backend-node/package-lock.json')
+    // select-stack:end
+    // select-stack:begin python
+    //~ expect(installs).toEqual([])
+    //~ expect(setup?.with?.['cache-dependency-path']).not.toContain('backend-node')
+    // select-stack:end
+  })
 })
