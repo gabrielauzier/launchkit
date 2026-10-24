@@ -73,7 +73,9 @@ function newInstallation(): string {
 const leftovers = (userData: string) =>
   ['files.import-old', 'files.import-new', 'import.journal.json'].filter((name) => existsSync(path.join(userData, name)))
 
-describe('an import killed by SIGKILL', () => {
+// Each case starts three or four child processes and each boots PGlite (WASM): 4 to 6 s on a CI
+// runner, so vitest's 5 s default is too tight. The children have their own 60 s limit.
+describe('an import killed by SIGKILL', { timeout: 120_000 }, () => {
   // The points where a crash must leave the database and the files both before or both after.
   const POINTS: Array<[string, 'before' | 'after']> = [
     ['staged', 'before'],
