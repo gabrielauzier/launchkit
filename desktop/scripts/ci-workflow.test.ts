@@ -84,11 +84,11 @@ describe('ci workflow', () => {
     }
   })
 
-  // The local backend is bundled by esbuild from backend-node/src: a clean runner has no
-  // backend-node/node_modules, so each job installs them before anything that builds or tests the app.
+  // A clean runner has no node_modules anywhere: the jobs install the packages of everything the app
+  // build bundles (the local backend's, when there is one) before anything that builds or tests the app.
   const BUILDS = /build:backend|build:all|package:|npm test|test:e2e/
   for (const name of ['desktop-checks', 'desktop-e2e']) {
-    it(`${name} installs backend-node before the first step that builds or tests the app`, () => {
+    it(`${name} installs the packages the build bundles before the first step that builds or tests the app`, () => {
       const job = ci.jobs[name]
       const first = job.steps.findIndex((step) => step.run && BUILDS.test(step.run))
       expect(first, 'a build step').toBeGreaterThan(-1)

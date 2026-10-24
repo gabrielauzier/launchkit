@@ -105,7 +105,7 @@ describe('desktop-release workflow', () => {
     }
   })
 
-  it('installs backend-node before the app is built (the bundled local backend needs its packages)', () => {
+  it('installs the packages the build bundles before the app is built', () => {
     const job = workflow.jobs['desktop-release']
     const steps = job.steps as Array<{ run?: string; uses?: string; with?: Record<string, string> }>
     const first = steps.findIndex((step) => step.run && /build:backend|build:all|package:|npm test|electron-builder/.test(step.run))
