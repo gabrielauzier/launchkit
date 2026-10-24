@@ -26,6 +26,45 @@ RUNTIME="docker"
 COMPOSE_BACKEND="docker-compose-plugin"
 COMPOSE_CMD=(docker compose)
 COMPOSE_CMD_DISPLAY="docker compose"
+# Backend stack: python (FastAPI + Celery) or node (Fastify + BullMQ). Empty = not chosen (python).
+STACK=""
+
+usage() {
+  echo "Usage: install.sh [--stack python|node]" >&2
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --stack)
+        [ "$#" -ge 2 ] || { echo "--stack needs a value (python or node)" >&2; usage; exit 2; }
+        STACK="$2"
+        shift 2
+        ;;
+      --stack=*)
+        STACK="${1#--stack=}"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown option: $1" >&2
+        usage
+        exit 2
+        ;;
+    esac
+  done
+
+  case "$STACK" in
+    ""|python|node) ;;
+    *)
+      echo "Unsupported stack: $STACK (use python or node)" >&2
+      exit 2
+      ;;
+  esac
+}
 
 # ── OS Detection ─────────────────────────────────────────────────────────────
 detect_os() {
@@ -296,6 +335,13 @@ setup_repo() {
 generate_env() {
   if [ -f .env ]; then
     info ".env file already exists, skipping generation"
+    if [ -n "$STACK" ]; then
+      # The flag wins over what an earlier install wrote.
+      grep -v '^BACKEND_STACK=' .env > .env.tmp || true
+      echo "BACKEND_STACK=$STACK" >> .env.tmp
+      mv .env.tmp .env
+      info "BACKEND_STACK=$STACK set in .env"
+    fi
     return
   fi
 
@@ -311,8 +357,28 @@ generate_env() {
 SECRET_KEY=$SECRET_KEY
 IMAGE_PREFIX=$IMAGE_PREFIX
 EOF
+  if [ -n "$STACK" ]; then
+    echo "BACKEND_STACK=$STACK" >> .env
+  fi
 
   success ".env file created with a random SECRET_KEY"
+}
+
+# ── Backend stack check ──────────────────────────────────────────────────────
+# Same message as scripts/stack/preflight.sh and deploy/public/launchkit-compose; the environment
+# wins over .env, like in Compose.
+check_backend_stack() {
+  local value="${BACKEND_STACK:-}"
+  if [ -z "$value" ] && [ -r .env ]; then
+    value="$(grep '^BACKEND_STACK=' .env | tail -n 1 | cut -d= -f2- | tr -d "\"' \r")"
+  fi
+  case "${value:-python}" in
+    python|node) ;;
+    *)
+      echo "BACKEND_STACK must be python or node (got: $value)" >&2
+      exit 2
+      ;;
+  esac
 }
 
 # ── Start Services ───────────────────────────────────────────────────────────
@@ -348,6 +414,8 @@ wait_for_health() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
+  parse_args "$@"
+
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
   echo -e "${BOLD}║         launchkit Installer          ║${NC}"
@@ -359,6 +427,7 @@ main() {
   wait_for_container_runtime
   setup_repo
   generate_env
+  check_backend_stack
   start_services
   wait_for_health
 
@@ -375,4 +444,4 @@ main() {
   echo ""
 }
 
-main
+main "$@"

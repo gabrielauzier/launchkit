@@ -180,3 +180,33 @@ async def test_create_workspace_makes_creator_the_manager(session, test_user: Us
     # And yet the creator can access via the manager path.
     member = await workspace_service.require_membership(session, ws.id, test_user.id)
     assert member.role == "manager"
+
+
+@pytest.mark.asyncio
+async def test_add_member_duplicate_is_409(session, test_user: User):
+    """A second invite for the same user is 409 'User is already a member'."""
+    ws = await workspace_service.create_personal_workspace_for_user(session, test_user)
+    await session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await workspace_service.add_member(session, ws.id, test_user.id, role="editor")
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "User is already a member"
+
+
+@pytest.mark.asyncio
+async def test_add_member_race_on_unique_constraint_is_409(session, test_user: User, monkeypatch):
+    """Two concurrent invites both pass the existence check; the loser hits
+    `uq_workspace_member` on flush and must answer 409, not 500."""
+    ws = await workspace_service.create_personal_workspace_for_user(session, test_user)
+    await session.commit()
+
+    async def _not_yet_visible(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(workspace_service, "get_membership", _not_yet_visible)
+
+    with pytest.raises(HTTPException) as exc:
+        await workspace_service.add_member(session, ws.id, test_user.id, role="editor")
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "User is already a member"

@@ -56,7 +56,14 @@ class CIChangesTest(unittest.TestCase):
         self.env.update(GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/123/merge",
                         GITHUB_SHA=self.git("rev-parse", "HEAD"))
 
-    def select(self, expected, overrides=None, event_text=None):
+    def select(self, expected, overrides=None, event_text=None, stack=None):
+        # Older cases list the three original outputs; the Node backend suite runs only when
+        # everything does, or when a case says so with a fourth value.
+        if len(expected) == 3:
+            expected = (*expected, "true" if expected == ("true",) * 3 else "false")
+        # The stack jobs run whenever a backend or the chart does, unless a case says otherwise.
+        if stack is None:
+            stack = "true" if "true" in (expected[0], expected[2], expected[3]) else "false"
         event_file = Path(self.temp.name) / "event.json"
         event_file.write_text(json.dumps(self.event) if event_text is None else event_text)
         output_file = Path(self.temp.name) / "output"
@@ -66,11 +73,13 @@ class CIChangesTest(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", str(SELECTOR)], cwd=self.repo,
                                 env=env, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        # The desktop app bundles the frontend: unless a case names run_desktop, it follows run_frontend.
-        desktop = expected[3] if len(expected) > 3 else expected[1]
+        # The desktop app bundles the frontend: unless a case gives a fifth value (run_desktop),
+        # it follows the frontend.
+        desktop = expected[4] if len(expected) > 4 else expected[1]
         self.assertEqual(output_file.read_text(),
                          f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n"
-                         f"run_desktop={desktop}\n")
+                         f"run_backend_node={expected[3]}\nrun_desktop={desktop}\n"
+                         f"run_stack_switch={stack}\nrun_select_stack={stack}\n")
 
     def test_component_docs_and_shared_paths(self):
         cases = [
@@ -93,19 +102,53 @@ class CIChangesTest(unittest.TestCase):
 
     def test_run_desktop_selection(self):
         cases = [
-            ({"desktop/src/main/index.ts": "code"}, ("false", "false", "false", "true")),
-            ({"desktop/package.json": "{}"}, ("false", "false", "false", "true")),
-            ({"frontend/new.ts": "code"}, ("false", "true", "false", "true")),
-            ({"backend/new.py": "code"}, ("true", "false", "false", "false")),
-            ({"charts/launchkit/new.yaml": "chart"}, ("false", "false", "true", "false")),
-            ({"docs/new.md": "docs"}, ("false", "false", "false", "false")),
-            ({"backend/new.py": "code", "desktop/new.ts": "code"}, ("true", "false", "false", "true")),
-            ({".github/workflows/desktop-release.yml": "shared"}, ("true", "true", "true", "true")),
+            ({"desktop/src/main/index.ts": "code"}, ("false", "false", "false", "false", "true")),
+            ({"desktop/package.json": "{}"}, ("false", "false", "false", "false", "true")),
+            ({"frontend/new.ts": "code"}, ("false", "true", "false", "false", "true")),
+            ({"backend/new.py": "code"}, ("true", "false", "false", "false", "false")),
+            ({"charts/launchkit/new.yaml": "chart"}, ("false", "false", "true", "false", "false")),
+            ({"docs/new.md": "docs"}, ("false", "false", "false", "false", "false")),
+            ({"backend/new.py": "code", "desktop/new.ts": "code"}, ("true", "false", "false", "false", "true")),
+            ({".github/workflows/desktop-release.yml": "shared"}, ("true", "true", "true", "true", "true")),
         ]
         for files, expected in cases:
             with self.subTest(files=files):
                 self.merge(files)
                 self.select(expected)
+
+    def test_stack_jobs_triggers(self):
+        for name in ("docker-compose.yml", "docker-compose.prod.yml", "docker-compose.override.yml"):
+            with self.subTest(name=name):
+                self.merge({name: "compose"})
+                self.select(("true", "true", "true", "true"), stack="true")
+        self.merge({"charts/launchkit/values.yaml": "chart"})
+        self.select(("false", "false", "true", "false"), stack="true")
+        self.merge({"scripts/select-stack.mjs": "script"})
+        self.select(("false", "false", "false", "false"), stack="true")
+        for files in ({"frontend/new.ts": "code"}, {"README.md": "docs", "docs/new.md": "docs"}):
+            with self.subTest(files=files):
+                self.merge(files)
+                self.select(("false", files.get("frontend/new.ts") and "true" or "false", "false", "false"), stack="false")
+
+    def test_backend_node_only(self):
+        for name in ("backend-node/src/app.ts", "backend-node/README.md", "backend-node/package.json"):
+            with self.subTest(name=name):
+                self.merge({name: "code"})
+                self.select(("false", "false", "false", "true"))
+        self.merge({"backend-node/src/app.ts": "code", "frontend/new.ts": "code"})
+        self.select(("false", "true", "false", "true"))
+
+    def test_contracts_select_both_backends(self):
+        for name in ("contracts/tests/login.test.ts", "contracts/openapi.json"):
+            with self.subTest(name=name):
+                self.merge({name: "contract"})
+                self.select(("true", "false", "false", "true"))
+
+    def test_unknown_path_still_runs_everything(self):
+        for name in ("new-package/code.py", "unexpected.md", "docker-compose.yml"):
+            with self.subTest(name=name):
+                self.merge({name: "shared"})
+                self.select(("true", "true", "true", "true"))
 
     def test_deleted_and_renamed_files(self):
         for old, new, expected in (

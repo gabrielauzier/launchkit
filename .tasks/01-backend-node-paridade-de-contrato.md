@@ -10,7 +10,7 @@ O backend do launchkit só existe em Python (FastAPI). Quem quer usar o template
 
 Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as mesmas 61 rotas do Python com o mesmo contrato HTTP, sobre o mesmo schema de banco, e uma suíte de contrato (`contracts/`) que roda contra qualquer uma das duas stacks. O frontend não muda. Escolher a stack em Compose, Helm e release é a task 2; o desktop é das tasks 3 e 4.
 
-42 critérios em 7 slices · 6 portas de mão única · 1 aberta, 0 bloqueiam
+44 critérios em 7 slices · 6 portas de mão única · 0 abertas, 0 bloqueiam
 
 ## Criteria
 
@@ -51,14 +51,14 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 ### Workspaces
 
 26. Quando `X-Workspace-Id` não é um UUID, então 400 `{"detail": "Invalid X-Workspace-Id"}`; quando é de um workspace inexistente, arquivado ou do qual o usuário não é membro nem gerente, então 404 `{"detail": "Workspace not found"}`; quando o cabeçalho falta, então vale o workspace padrão do usuário, e sem nenhum, 404 `{"detail": "No workspace available"}`.
-27. Quando um viewer escreve, então 403 `{"detail": "Read-only role"}`; quando um editor chama rota exclusiva de owner, então 403 `{"detail": "Owner role required"}`; um gerente (`managed_by_user_id`) tem direitos de owner sem linha em `workspace_members`.
+27. Quando um viewer escreve, então 403 `{"detail": "Read-only role"}`; quando um editor chama rota exclusiva de owner, então 403 `{"detail": "Insufficient role"}`; um gerente (`managed_by_user_id`) tem direitos de owner sem linha em `workspace_members`.
 28. Quando a suíte de contrato roda, então cada uma das 12 operações de `/api/workspaces` e `/api/users` (`lookup`, `directory`) tem ao menos 1 caso com status e corpo, incluindo `archive` e a remoção de membro.
-29. Dado dois `POST /api/workspaces/{id}/members` simultâneos para o mesmo usuário, então `workspace_members` contém 1 linha para o par (restrição `uq_workspace_member`) e a segunda resposta é igual à da duplicata sequencial no Python.
+29. Dado dois `POST /api/workspaces/{id}/members` simultâneos para o mesmo usuário, então `workspace_members` contém 1 linha para o par (restrição `uq_workspace_member`), um pedido responde 201 e o outro 409, nas duas stacks (o Python passa a capturar `IntegrityError` nessa corrida e a responder 409, no lugar do 500 de hoje).
 30. Quando a suíte de contrato roda, então ela contém os casos de `backend/tests/test_write_permission_gate.py` para viewer, editor e owner, e todos passam nas duas stacks.
 
 ### Admin e arquivos
 
-31. Quando um usuário sem `is_superuser` chama qualquer rota de `/api/admin/*`, então 403; sem token, então 401.
+31. Quando um usuário sem `is_superuser` chama uma das 9 operações de `/api/admin/*` que exigem superusuário, então 403, e sem token, 401; `GET /api/admin/registration-status` e `GET /api/admin/default-colors` respondem 200 sem token; `GET /api/admin/number-format` e `GET /api/admin/date-format` respondem 200 a qualquer usuário ativo e 401 sem token.
 32. Quando a suíte de contrato roda, então cada uma das 13 operações de `/api/admin/*` tem ao menos 1 caso com status e corpo.
 33. Quando `POST /api/files` recebe arquivo acima de `STORAGE_MAX_FILE_SIZE_MB`, então 400 `{"detail": "File too large. Maximum size is <N> MB."}`; com extensão fora de `STORAGE_ALLOWED_EXTENSIONS`, então 400 `{"detail": "File type '.<ext>' is not allowed. Allowed: <lista>"}`; com arquivo válido, então 201 com o registro do arquivo.
 34. Quando `GET /api/files/{id}/download` roda, então 200 com `Content-Type` do registro e `Content-Disposition: inline; filename*=UTF-8''<nome codificado>`; com id inexistente ou de outro workspace, então 404 `{"detail": "File not found"}`.
@@ -76,11 +76,13 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 40. Sempre, nenhuma linha de log do Node durante a suíte de contrato contém a senha, o `access_token`, o `temp_token` ou o `SECRET_KEY` usados nos casos.
 41. Quando um PR altera só `backend-node/`, então `.github/ci/changes.py` marca `run_backend_node=true` e `run_backend`, `run_frontend`, `run_helm` como `false`; quando altera `contracts/`, marca `run_backend_node` e `run_backend` como `true`; um caminho desconhecido continua rodando tudo; `test_changes.py` cobre os três casos.
 42. Se o Redis não responde, então `POST /api/auth/login` e as demais rotas com rate limit retornam 500, como o Python.
+43. Quando a suíte de contrato roda, então cada operação sem critério próprio (`POST /api/auth/logout`, `GET /api/info`, `GET /api/timezones`, `GET /api/settings/files`, `GET /api/auth/oidc/config`, `GET` e `DELETE /api/users/{id}`, `GET /api/files`, `PATCH /api/files/{id}`, `DELETE /api/files/{id}`) tem ao menos 1 caso com status e corpo, e passa nas duas stacks.
+44. Quando `PATCH /api/workspaces/{id}` ou `PATCH /api/admin/settings/timezone` recebe um fuso com caixa errada (`America/sao_paulo`), então 400 `{"detail": "Invalid IANA timezone"}` nas duas stacks; um alias aceito pelo Python (`US/Pacific`) responde 200 nas duas; e `GET /api/timezones` lista os mesmos nomes nas duas stacks.
 
 ## Out of scope
 
 - Remover ou congelar o backend Python - as duas stacks seguem mantidas.
-- Mudar o contrato da API - mudança de contrato começa no Python e é replicada no Node.
+- Mudar o contrato da API - mudança de contrato começa no Python e é replicada no Node; a única exceção desta task é o 409 do critério 29 (correção de um 500).
 - Rodar as duas stacks ao mesmo tempo sobre o mesmo banco - risco de corrupção e de conflito de migrations.
 - Enviar e-mail de reset de senha - o Python também não envia (`on_after_forgot_password` não existe); o Node espelha.
 - Gerar os tipos de `frontend/src/types` a partir do OpenAPI - história P2 do PRD.
@@ -93,7 +95,7 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 | Surface | Decision | Landing |
 | --- | --- | --- |
 | API, todas as rotas | formato da resposta | 3, 4, 28, 32 |
-| API, todas as rotas | formato e códigos de erro | 5, 6, 7, 14, 15, 16, 19, 20, 26, 27, 33, 34 |
+| API, todas as rotas | formato e códigos de erro | 5, 6, 7, 14, 15, 16, 19, 20, 26, 27, 29, 33, 34, 43 |
 | API, todas as rotas | quem pode chamar | 26, 27, 31 |
 | API, todas as rotas | versionamento | n/a - a API não tem prefixo de versão; o contrato é `/api/*` |
 | API, todas as rotas | limite de taxa | 12, 13, 19 |
@@ -123,6 +125,7 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 | domain | new term: `StorageProvider` - mesma interface de `backend/app/providers/storage.py`; lives in `backend-node/src/ports/` |
 | domain | new term: suíte de contrato - testes black-box que recebem `API_URL`; lives in `contracts/tests/` |
 | domain | existing terms: nenhum muda de significado |
+| domain | existing: `POST /api/workspaces/{id}/members` passa a responder 409 (antes 500) na corrida de convites; quem ramifica nisso hoje: nenhum chamador conhecido no frontend |
 | stored data | nada a migrar; o Node precisa rodar sobre bancos criados pelo Alembic (critério 38) |
 | stored data | Redis: as stacks passam a ler e escrever os mesmos formatos de `2fa_temp:*`, `oidc_state:*` e dos challenges de passkey; uma mudança num formato agora exige mudar as duas |
 | CI | `.github/ci/changes.py` e `test_changes.py` ganham `run_backend_node`; novos jobs `backend-node-tests`, `contract` (matriz python/node), `contract-drift` e `schema-diff` |
@@ -134,7 +137,7 @@ Ao fim desta task existe `backend-node/` (Fastify 5, TypeScript) que serve as me
 | Schema do Node = Alembic `001`, com baseline | 6 tabelas (`app_settings`, `users`, `user_passkeys`, `workspaces`, `workspace_members`, `files`) em Drizzle; se `alembic_version` existe com `version_num = '001'`, marca a migration inicial como aplicada sem DDL; senão roda as migrations | Prisma: depende de engine binário e não roda sobre PGlite (task 4). Node sem migrations próprias: um projeto só-Node ficaria dependente de Python. |
 | Formatos compartilhados entre stacks | JWT HS256 com `SECRET_KEY`, `sub` = UUID do usuário, `aud` = `fastapi-users:auth`; senha gravada em argon2, lida em argon2 e bcrypt; Redis: `2fa_temp:<token>` `{"user_id","available_methods"}` TTL 300, `oidc_state:<state>` `{"nonce","code_verifier"}`, challenges `<prefixo>:<challenge_id>` | Formatos próprios do Node: impede trocar de stack com sessões e passkeys vivas, e a task 4 (OIDC) assume o payload único. |
 | Portas para infraestrutura | `KeyValueStore`, `JobQueue`, `StorageProvider`, cada uma com implementação Redis/BullMQ (ou disco) e em memória; padrão que o Python não tem | Usar `ioredis` e BullMQ direto: BullMQ exige Redis e o backend não poderia rodar dentro do Electron (task 4). |
-| Dependências do backend Node | Fastify 5, `fastify-type-provider-zod` + Zod 4, `@fastify/swagger`, `@fastify/multipart`, Drizzle ORM + drizzle-kit, `ioredis`, BullMQ, `jose`, `@node-rs/argon2`, `bcryptjs`, `otpauth`, `@simplewebauthn/server`, `openid-client`, Vitest | TypeBox no lugar de Zod: sem reuso de schemas com o frontend, que já usa Zod 4. |
+| Dependências do backend Node | Fastify 5, `fastify-type-provider-zod` + Zod 4, `@fastify/swagger`, `@fastify/multipart`, Drizzle ORM + drizzle-kit, `ioredis`, BullMQ, `@node-rs/argon2`, `bcryptjs`, `otpauth`, `@simplewebauthn/server`, `jose` com `fetch` para o cliente OIDC (no lugar de `openid-client`, decisão do usuário: espelha o `httpx` do Python), Vitest | TypeBox no lugar de Zod: sem reuso de schemas com o frontend, que já usa Zod 4. |
 | Caminhos | `backend-node/`, `contracts/openapi.json`, `contracts/tests/` | Renomear `backend/` agora: quebra caminhos de CI, Compose, Helm, `install.sh` e `deploy/public`. |
 | Formato de erro | `{"detail": <string>}`, `{"detail": {"code","message"}}` e 422 `{"detail": [{"loc","msg","type"}]}` | Formato nativo do Fastify (`statusCode`, `error`, `message`): `frontend/src/lib/api-errors.ts` lê `detail`. |
 
@@ -150,4 +153,4 @@ This task is the record of decision. If a linked document diverges, ask before b
 
 | # | Kind | Question | Until answered |
 |---|---|---|---|
-| 1 | open | O Python troca o hash bcrypt por argon2 no login? | Critério 10 assume que sim (`$argon2`); o caso do critério 3 roda contra o Python primeiro e corrige o critério 10 se o resultado for outro. |
+| | | None | |

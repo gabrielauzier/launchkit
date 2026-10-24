@@ -15,6 +15,16 @@ cd "$ROOT"
 ENV_FILE="${LAUNCHKIT_ENV_FILE:-deploy/public/.env}"
 [ -r "$ENV_FILE" ] || { echo "arquivo de ambiente não encontrado: $ENV_FILE (copie deploy/public/.env.example)" >&2; exit 1; }
 
+# BACKEND_STACK (python ou node): o ambiente vence o arquivo, como no Compose.
+STACK="${BACKEND_STACK:-}"
+if [ -z "$STACK" ]; then
+  STACK="$(grep '^BACKEND_STACK=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- | tr -d "\"' \r" || true)"
+fi
+case "${STACK:-python}" in
+  python|node) ;;
+  *) echo "BACKEND_STACK must be python or node (got: $STACK)" >&2; exit 2 ;;
+esac
+
 # `down -v` e `volume rm` apagam o banco e os arquivos: exige confirmação explícita.
 for arg in "$@"; do
   if [ "$arg" = "-v" ] || [ "$arg" = "--volumes" ]; then

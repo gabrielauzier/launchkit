@@ -220,6 +220,15 @@ Ele: (1) impede o sleep na tomada e religa sozinho após queda de energia (`pmse
 
 ---
 
+## Trocar de stack
+
+O launchkit tem duas stacks de backend com a mesma API e o mesmo banco: `python` (FastAPI + Celery, o padrão) e `node` (Fastify + BullMQ). A escolha é a variável `BACKEND_STACK` do `deploy/public/.env`; a imagem de cada uma é publicada com o mesmo `IMAGE_PREFIX` (`launchkit-backend` e `launchkit-backend-node`). Os volumes `pgdata` e `files` são os mesmos nas duas, então a troca é só de configuração: **nunca** rode as duas ao mesmo tempo sobre o mesmo banco.
+
+1. **Backup.** Rode `deploy/public/backup/backup.sh` e confirme que os arquivos `.age` e `.sha256` do dia existem (restauração em [backup/restore.md](backup/restore.md)).
+2. **Trocar o `BACKEND_STACK`.** Em `deploy/public/.env` ponha `BACKEND_STACK=node` (ou `python`), confira que a imagem existe para o seu `APP_VERSION` e aplique: `./deploy/public/launchkit-compose up -d --remove-orphans`. Sem `-v`: os volumes ficam.
+3. **Verificar `GET /api/health`.** `curl -s http://127.0.0.1:3100/api/health` deve responder `{"status":"healthy"}`; entre com a mesma conta e confira que os seus workspaces e arquivos continuam lá.
+4. **Voltar atrás.** Se algo falhar, ponha o valor anterior de `BACKEND_STACK`, rode o mesmo `up -d --remove-orphans` e verifique `GET /api/health` de novo. Os dados criados na outra stack continuam disponíveis; só restaure o backup se o banco foi danificado.
+
 ## Versões e releases
 - Por padrão o Compose de produção usa `ghcr.io/your-org/launchkit-*:latest`, e o projeto só publica imagens quando **publica uma release**. Em produção **fixe a versão** em `APP_VERSION` (no `.env`), para que um `pull` nunca troque o app sem você ter lido as notas e feito backup. O `docker-compose.prod.yml` lê `IMAGE_PREFIX` e `APP_VERSION` do `.env`, que o atalho `launchkit-compose` sempre carrega.
 - O repositório publica as próprias imagens em `ghcr.io/<seu-usuario>/launchkit-*` ao criar uma release. O processo completo, com um script de apoio e as armadilhas, está em [RELEASING.md](RELEASING.md).
