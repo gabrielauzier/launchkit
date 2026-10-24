@@ -5,7 +5,7 @@ metadata:
   name: {{ include "launchkit.fullname" . }}-worker
   labels:
     {{- include "launchkit.labels" . | nindent 4 }}
-    app.kubernetes.io/component: celery-worker
+    app.kubernetes.io/component: {{ if eq (include "launchkit.backendStack" .) "node" }}worker{{ else }}celery-worker{{ end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.celeryWorker.replicaCount }}
@@ -13,26 +13,31 @@ spec:
   selector:
     matchLabels:
       {{- include "launchkit.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
+      app.kubernetes.io/component: {{ if eq (include "launchkit.backendStack" .) "node" }}worker{{ else }}celery-worker{{ end }}
   template:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/common/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "launchkit.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: celery-worker
+        app.kubernetes.io/component: {{ if eq (include "launchkit.backendStack" .) "node" }}worker{{ else }}celery-worker{{ end }}
     spec:
       containers:
-        - name: celery-worker
-          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+        - name: {{ if eq (include "launchkit.backendStack" .) "node" }}worker{{ else }}celery-worker{{ end }}
+          image: "{{ include "launchkit.backendImage" . }}"
           imagePullPolicy: {{ .Values.celeryWorker.image.pullPolicy }}
           command:
+            {{- if eq (include "launchkit.backendStack" .) "node" }}
+            - node
+            - dist/worker.js
+            {{- else }}
             - celery
             - -A
             - app.worker
             - worker
             - --loglevel=info
             - --concurrency=2
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "launchkit.fullname" . }}-config

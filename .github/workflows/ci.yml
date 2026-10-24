@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # select-stack:begin python
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -92,7 +93,9 @@ jobs:
         with:
           name: coverage-report
           path: backend/coverage.xml
+  # select-stack:end
 
+  # select-stack:begin python
   migration-chain:
     name: Migration Chain
     runs-on: ubuntu-latest
@@ -111,6 +114,7 @@ jobs:
 
       - name: Check the Alembic revision chain
         run: python3 backend/scripts/check_migration_chain.py
+  # select-stack:end
 
   frontend-checks:
     name: Frontend Checks
@@ -211,6 +215,7 @@ jobs:
           test -d charts/acme-app
           if grep -rIil launchkit . ; then echo "template name left behind"; exit 1; fi
 
+  # select-stack:begin python
   contract-drift:
     name: Contract Drift
     runs-on: ubuntu-latest
@@ -265,7 +270,9 @@ jobs:
         if: steps.backend-changes.outputs.run_backend != 'false'
         working-directory: .
         run: backend/.venv/bin/python backend/scripts/export_timezones.py --check
+  # select-stack:end
 
+  # select-stack:begin node
   backend-node-tests:
     name: Backend Node Tests
     runs-on: ubuntu-latest
@@ -326,7 +333,9 @@ jobs:
         env:
           REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
         run: npm test -- --coverage
+  # select-stack:end
 
+  # select-stack:begin multi
   contract:
     name: Contract (${{ matrix.stack }})
     runs-on: ubuntu-latest
@@ -424,7 +433,9 @@ jobs:
           npx vitest run --reporter=default --reporter=json --outputFile.json=.logs/result.json || status=$?
           node scripts/summary.mjs .logs/result.json --no-skip
           exit $status
+  # select-stack:end
 
+  # select-stack:begin multi
   schema-diff:
     name: Schema Diff
     runs-on: ubuntu-latest
@@ -501,3 +512,75 @@ jobs:
           SCHEMA_DIFF_URL_BASE: postgresql://launchkit_test:launchkit_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}
           PYTHON_BIN: ${{ github.workspace }}/backend/.venv/bin/python
         run: backend-node/scripts/schema-diff.sh --self-test
+  # select-stack:end
+
+  # select-stack:begin multi
+  stack-switch:
+    name: Stack Switch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect stack-relevant changes
+        id: changes
+        run: python3 .github/ci/changes.py
+
+      - name: Skip stack switch checks
+        if: steps.changes.outputs.run_stack_switch == 'false'
+        run: echo "No stack-relevant changes; skipping the stack switch checks."
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Preflight BACKEND_STACK
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        run: scripts/stack/preflight.sh
+
+      # C1, C2, C4, C17 and C18: each case brings a Compose project up on random host ports.
+      - name: Run the stack cases with Docker Compose
+        if: steps.changes.outputs.run_stack_switch != 'false'
+        run: node --test --test-name-pattern='^C(1|2|4|17|18) ' scripts/stack/stack.test.mjs
+  # select-stack:end
+
+  # select-stack:begin multi
+  select-stack:
+    name: Select Stack (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [python, node]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect stack-relevant changes
+        id: changes
+        run: python3 .github/ci/changes.py
+
+      - name: Skip select-stack checks
+        if: steps.changes.outputs.run_select_stack == 'false'
+        run: echo "No stack-relevant changes; skipping the select-stack checks."
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_select_stack != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # C14 on a copy of the repository with only this stack: compose config, helm lint, actionlint,
+      # and the CI tests of the copy.
+      - name: Apply select-stack to a copy and check it
+        if: steps.changes.outputs.run_select_stack != 'false'
+        env:
+          ONLY_STACK: ${{ matrix.stack }}
+        run: node --test --test-name-pattern='^C14 ' scripts/stack/select-stack.test.mjs
+  # select-stack:end

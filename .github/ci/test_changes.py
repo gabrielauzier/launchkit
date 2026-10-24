@@ -56,11 +56,14 @@ class CIChangesTest(unittest.TestCase):
         self.env.update(GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/123/merge",
                         GITHUB_SHA=self.git("rev-parse", "HEAD"))
 
-    def select(self, expected, overrides=None, event_text=None):
+    def select(self, expected, overrides=None, event_text=None, stack=None):
         # Older cases list the three original outputs; the Node backend suite runs only when
         # everything does, or when a case says so with a fourth value.
         if len(expected) == 3:
             expected = (*expected, "true" if expected == ("true",) * 3 else "false")
+        # The stack jobs run whenever a backend or the chart does, unless a case says otherwise.
+        if stack is None:
+            stack = "true" if "true" in (expected[0], expected[2], expected[3]) else "false"
         event_file = Path(self.temp.name) / "event.json"
         event_file.write_text(json.dumps(self.event) if event_text is None else event_text)
         output_file = Path(self.temp.name) / "output"
@@ -72,7 +75,8 @@ class CIChangesTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output_file.read_text(),
                          f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n"
-                         f"run_backend_node={expected[3]}\n")
+                         f"run_backend_node={expected[3]}\n"
+                         f"run_stack_switch={stack}\nrun_select_stack={stack}\n")
 
     def test_component_docs_and_shared_paths(self):
         cases = [
@@ -92,6 +96,20 @@ class CIChangesTest(unittest.TestCase):
             with self.subTest(files=files):
                 self.merge(files)
                 self.select(expected)
+
+    def test_stack_jobs_triggers(self):
+        for name in ("docker-compose.yml", "docker-compose.prod.yml", "docker-compose.override.yml"):
+            with self.subTest(name=name):
+                self.merge({name: "compose"})
+                self.select(("true", "true", "true", "true"), stack="true")
+        self.merge({"charts/launchkit/values.yaml": "chart"})
+        self.select(("false", "false", "true", "false"), stack="true")
+        self.merge({"scripts/select-stack.mjs": "script"})
+        self.select(("false", "false", "false", "false"), stack="true")
+        for files in ({"frontend/new.ts": "code"}, {"README.md": "docs", "docs/new.md": "docs"}):
+            with self.subTest(files=files):
+                self.merge(files)
+                self.select(("false", files.get("frontend/new.ts") and "true" or "false", "false", "false"), stack="false")
 
     def test_backend_node_only(self):
         for name in ("backend-node/src/app.ts", "backend-node/README.md", "backend-node/package.json"):

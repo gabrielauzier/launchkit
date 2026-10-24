@@ -20,7 +20,7 @@ Ao fim, `BACKEND_STACK=python|node` escolhe a stack em Compose (dev e prod), `ba
 
 1. Dado `BACKEND_STACK=node` no `.env`, quando `docker compose up --build` roda, então sobem `redis`, `db`, `frontend`, `backend-node`, `worker-node` e `scheduler-node`, e 0 containers de `backend`, `celery-worker` ou `celery-beat` (Python).
 2. Dado `BACKEND_STACK=python` ou a variável ausente, quando `docker compose up --build` roda, então sobem os mesmos 6 serviços de hoje (`redis`, `db`, `backend`, `frontend`, `celery-worker`, `celery-beat`) e nenhum serviço Node.
-3. Dado `BACKEND_STACK=go` (valor fora de `python|node`), quando o comando de subida roda, então ele falha antes de criar containers com a mensagem `BACKEND_STACK must be python or node (got: go)`.
+3. Dado `BACKEND_STACK=go` (valor fora de `python|node`), quando o comando de subida roda, então ele falha antes de criar containers (0 containers criados) com o erro nativo do Compose, que aponta para o arquivo `go.yml` inexistente, e `install.sh`, `launchkit-compose` e o preflight do CI imprimem `BACKEND_STACK must be python or node (got: go)` e saem com código 2.
 4. Dado `BACKEND_STACK=node`, quando `GET http://localhost:3000/api/health` roda, então 200 `{"status": "healthy"}`, com o frontend alcançando a API em `http://backend:8000`.
 5. Dado `BACKEND_STACK=node` e banco vazio, quando `/api/health` responde 200 pela primeira vez, então as 6 tabelas do schema já existem; ao reiniciar o container, a migration roda de novo sem erro e sem DDL.
 6. Se a migration do `backend-node` falha, então o container sai com código diferente de 0 e `/api/health` nunca responde 200.
@@ -35,8 +35,8 @@ Ao fim, `BACKEND_STACK=python|node` escolhe a stack em Compose (dev e prod), `ba
 
 ### Criar um projeto com uma stack só
 
-12. Quando `node scripts/select-stack.mjs --stack node` roda, então `backend/` não existe mais e `grep -rIlE 'celery|alembic|uvicorn|pytest|ruff' .` fora de `docs/` e `.tasks/` retorna 0 arquivos (Compose, CI, Helm, README, `mise.toml`, `renovate.json`, `.pre-commit-config.yaml`, `.github/ci/`).
-13. Quando `node scripts/select-stack.mjs --stack python` roda, então `backend-node/` e `contracts/` não existem mais e `grep -rIlE 'fastify|drizzle|bullmq' .` fora de `docs/` e `.tasks/` retorna 0 arquivos.
+12. Quando `node scripts/select-stack.mjs --stack node` roda, então `backend/` e `contracts/` não existem mais e `grep -rIlE 'celery|alembic|uvicorn|pytest|ruff'` sobre `docker-compose*.yml`, `compose/`, `.github/`, `charts/`, `README.md`, `CONTRIBUTING.md`, `mise.toml`, `renovate.json` e `.pre-commit-config.yaml` (sem lockfiles) retorna 0 arquivos; o código de baseline do Alembic em `backend-node/` permanece e não é contado.
+13. Quando `node scripts/select-stack.mjs --stack python` roda, então `backend-node/` e `contracts/` não existem mais e `grep -rIlE 'fastify|drizzle|bullmq'` sobre os mesmos caminhos do critério 12 (sem lockfiles) retorna 0 arquivos.
 14. Dado o resultado de `select-stack` (qualquer stack), quando `docker compose config -q` e `helm lint charts/launchkit` rodam, então saem com código 0, e `actionlint` não aponta erro em `.github/workflows/`.
 15. Se `select-stack` roda sem `--stack` ou com valor inválido, então sai com código 2 e imprime o uso com `python` e `node`; se a stack pedida já é a única presente, então sai com código 0 e a mensagem `already selected: <stack>`, sem alterar arquivos.
 16. Se a árvore de trabalho tem mudanças não commitadas, então `select-stack` sai com código 1, imprime `working tree not clean` e não apaga nenhum arquivo.
