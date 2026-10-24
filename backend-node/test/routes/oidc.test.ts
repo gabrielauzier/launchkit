@@ -202,3 +202,49 @@ describe('OpenID Connect', () => {
     }
   })
 })
+
+describe('OpenID Connect desktop sign-in', () => {
+  const TARGET = 'launchkit://auth/callback'
+  const login = (t: TestApp, query: string) => t.app.inject({ method: 'GET', url: `/api/auth/oidc/login?${query}` })
+
+  it('rejects a missing or short desktop_nonce and stores nothing (desktop_nonce)', async () => {
+    const t = await appWith({ OIDC_DESKTOP_REDIRECT: TARGET })
+    try {
+      const target = `redirect_target=${encodeURIComponent(TARGET)}`
+      for (const query of [target, `${target}&desktop_nonce=`, `${target}&desktop_nonce=${'x'.repeat(31)}`, `${target}&desktop_nonce=${'x'.repeat(129)}`]) {
+        const reply = await login(t, query)
+        expect(reply.statusCode, query).toBe(400)
+        expect(reply.json()).toEqual({ detail: 'Invalid desktop_nonce' })
+        expect(reply.headers.location).toBeUndefined()
+      }
+      expect((await login(t, `${target}&desktop_nonce=${'x'.repeat(32)}`)).statusCode).toBe(307)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('keeps the desktop_nonce in the state and returns it in the deep link (desktop_nonce)', async () => {
+    const t = await appWith({ OIDC_DESKTOP_REDIRECT: TARGET })
+    try {
+      const nonce = 'n'.repeat(43)
+      const begin = await login(t, `redirect_target=${encodeURIComponent(TARGET)}&desktop_nonce=${nonce}`)
+      expect(begin.statusCode).toBe(307)
+      const location = new URL(begin.headers.location as string)
+      const state = location.searchParams.get('state') as string
+      const stored = JSON.parse((await t.ctx.keyValueStore.get(`oidc_state:${state}`)) as string)
+      expect(Object.keys(stored).sort()).toEqual(['code_verifier', 'desktop_nonce', 'nonce', 'redirect_target'])
+
+      const code = 'code-desktop-nonce'
+      idp.grant(code, stored.nonce, location.searchParams.get('code_challenge') as string, {
+        claims: { sub: 'sub-desktop', email: 'desktop@example.com', email_verified: true },
+      })
+      const reply = await t.app.inject({ method: 'GET', url: `/api/auth/oidc/callback?code=${code}&state=${state}` })
+      expect(reply.statusCode).toBe(307)
+      const target = reply.headers.location as string
+      expect(target.startsWith(`${TARGET}#access_token=`)).toBe(true)
+      expect(target.endsWith(`&token_type=bearer&desktop_nonce=${nonce}`)).toBe(true)
+    } finally {
+      await t.close()
+    }
+  })
+})

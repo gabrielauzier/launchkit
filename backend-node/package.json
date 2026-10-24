@@ -20,6 +20,7 @@
     "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@fastify/cors": "^11.3.1",
     "@fastify/formbody": "^9.0.1",
     "@fastify/multipart": "^10.1.4",
@@ -38,7 +39,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.10",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",

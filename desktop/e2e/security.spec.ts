@@ -15,13 +15,26 @@ test.afterEach(async () => {
 
 const LAUNCHKIT_MEMBERS = [
   'appVersion',
+  // select-stack:begin node
+  'getMode',
+  // select-stack:end
   'getServerUrl',
   'installUpdate',
   'isDesktop',
+  // select-stack:begin node
+  'onExportState',
+  // select-stack:end
   'onUpdateAvailable',
   'openExternal',
+  // select-stack:begin node
+  'openLogs',
+  // select-stack:end
   'platform',
   'setServerUrl',
+  // select-stack:begin node
+  'startLocal',
+  // select-stack:end
+  'startSso',
 ]
 
 test('window web preferences are locked down', async () => {
@@ -79,6 +92,8 @@ test('renderer cannot navigate away', async () => {
   expect(page.url()).toBe(before)
 })
 
+// The title is what task 3's proof (C20a) calls; the bridge has grown since (SSO, local mode, export),
+// so the list above is the current one (13 members) and this test fixes that list.
 test('window.launchkit exposes exactly the eight members', async () => {
   const { page } = await launchApp({ serverUrl: server.url })
   await expect(page.getByRole('heading', { name: 'Login' })).toBeVisible()

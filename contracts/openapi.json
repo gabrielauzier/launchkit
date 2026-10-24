@@ -2277,6 +2277,40 @@
     "/api/auth/oidc/login": {
       "get": {
         "operationId": "oidc_login_api_auth_oidc_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "redirect_target",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Redirect Target"
+            }
+          },
+          {
+            "in": "query",
+            "name": "desktop_nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desktop Nonce"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2285,6 +2319,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Oidc Login",

@@ -182,6 +182,12 @@
     ],
     "test_oidc_callback_registration_disabled_does_not_block_existing_email_link": [
       "C25 disabled registration does not block linking an existing email"
+    ],
+    "test_oidc_login_rejects_missing_or_short_desktop_nonce": [
+      "D4 rejects a missing or short desktop_nonce"
+    ],
+    "test_oidc_callback_returns_the_desktop_nonce_to_the_redirect_target": [
+      "D3 callback redirects to the desktop deep link with an app token in the fragment"
     ]
   }
 }

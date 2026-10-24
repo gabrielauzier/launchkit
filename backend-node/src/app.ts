@@ -20,8 +20,14 @@ import { userRoutes } from './routes/users.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
 
 /** The one place the application is assembled: `server.ts` and the tests both call it. */
-export async function buildApp(ctx: AppContext, options: FastifyServerOptions = {}): Promise<FastifyInstance> {
+export async function buildApp(
+  ctx: AppContext,
+  options: FastifyServerOptions = {},
+  /** Runs right after Fastify is created, before any plugin: global hooks added here see every request. */
+  beforeRoutes?: (app: FastifyInstance) => void,
+): Promise<FastifyInstance> {
   const app = Fastify({ ...options })
+  beforeRoutes?.(app)
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/auth-context'
 import { setup, auth as authApi, admin as adminApi } from '@/lib/api'
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import type { AxiosError } from 'axios'
-import { isDesktop } from '@/lib/platform'
+import { getDesktopApi, isDesktop } from '@/lib/platform'
 import { isServerUnreachable } from '@/lib/auth-errors'
 import { resolveLocalAuthEnabled } from '@/lib/auth-config-utils'
 import { useTheme } from 'next-themes'
@@ -44,6 +44,9 @@ export default function LoginPage() {
   const { t } = useTranslation()
   const { login, verify2fa, loginWithToken, token } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // The desktop app lands here with ?sso=failed when a sign-in deep link was incomplete.
+  const ssoFailed = searchParams.get('sso') === 'failed'
   const { resolvedTheme } = useTheme()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -204,8 +207,13 @@ export default function LoginPage() {
     }
   }
 
-  const handleOIDCLogin = () => {
+  const handleOIDCLogin = async () => {
     conditionalPasskeyAbortRef.current?.abort()
+    if (isDesktop()) {
+      // The main process opens the provider in the system browser; the sign-in returns through launchkit://auth/callback.
+      await getDesktopApi().startSso()
+      return
+    }
     window.location.href = '/api/auth/oidc/login'
   }
 
@@ -404,6 +412,13 @@ export default function LoginPage() {
           {authConfigLoading && (
             <CardContent className="px-8 py-6 text-center text-sm text-muted-foreground" role="status">
               {t('common.loading')}
+            </CardContent>
+          )}
+          {ssoFailed && (
+            <CardContent className="px-8 pt-4 pb-0">
+              <div role="alert" className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
+                {t('desktop.sso.incomplete')}
+              </div>
             </CardContent>
           )}
           {oidcConfigFailed && (

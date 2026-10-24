@@ -1,12 +1,13 @@
 import base64
 import hashlib
 import json
+import re
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from fastapi_users import schemas
 from fastapi_users.exceptions import UserAlreadyExists
@@ -26,6 +27,10 @@ from app.services.workspace_service import create_personal_workspace_for_user
 
 router = APIRouter(prefix="/api/auth/oidc", tags=["auth"])
 OIDC_STATE_TTL = 600
+DESKTOP_NONCE_MIN_LENGTH = 32
+DESKTOP_NONCE_MAX_LENGTH = 128
+# base64url, what the app generates: also keeps len() (code points) and JS .length (UTF-16) from disagreeing.
+DESKTOP_NONCE_PATTERN = re.compile(r"[A-Za-z0-9_-]{%d,%d}" % (DESKTOP_NONCE_MIN_LENGTH, DESKTOP_NONCE_MAX_LENGTH))
 
 
 class OIDCConfigResponse(BaseModel):
@@ -62,7 +67,11 @@ async def oidc_config():
 
 
 @router.get("/login")
-async def oidc_login():
+async def oidc_login(
+    request: Request,
+    redirect_target: str | None = Query(default=None),
+    desktop_nonce: str | None = Query(default=None),
+):
     settings = get_settings()
     if not settings.oidc_client_id:
         raise HTTPException(status_code=500, detail="OIDC_CLIENT_ID is required")
@@ -70,6 +79,18 @@ async def oidc_login():
     authorization_endpoint = discovery.get("authorization_endpoint")
     if not authorization_endpoint:
         raise HTTPException(status_code=500, detail="OIDC discovery is missing authorization_endpoint")
+    # The desktop app asks for its own deep link; only exact allowlisted URLs are honoured.
+    if redirect_target is not None:
+        if redirect_target not in settings.oidc_desktop_redirects:
+            raise HTTPException(status_code=400, detail="Invalid redirect_target")
+        # The app proves the deep link answers a sign-in it started with a nonce of its own.
+        # A nonce given twice is ambiguous (which one does the app wait for?): refused, as on the Node backend.
+        if (
+            desktop_nonce is None
+            or len(request.query_params.getlist("desktop_nonce")) > 1
+            or not DESKTOP_NONCE_PATTERN.fullmatch(desktop_nonce)
+        ):
+            raise HTTPException(status_code=400, detail="Invalid desktop_nonce")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -77,12 +98,12 @@ async def oidc_login():
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
+    state_payload = {"nonce": nonce, "code_verifier": code_verifier}
+    if redirect_target is not None:
+        state_payload["redirect_target"] = redirect_target
+        state_payload["desktop_nonce"] = desktop_nonce
     r = await get_redis()
-    await r.set(
-        f"oidc_state:{state}",
-        json.dumps({"nonce": nonce, "code_verifier": code_verifier}),
-        ex=OIDC_STATE_TTL,
-    )
+    await r.set(f"oidc_state:{state}", json.dumps(state_payload), ex=OIDC_STATE_TTL)
 
     params = {
         "client_id": settings.oidc_client_id,
@@ -376,5 +397,11 @@ async def oidc_callback(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
     token = await get_jwt_strategy().write_token(user)
+    redirect_target = state_data.get("redirect_target")
+    if redirect_target:
+        desktop_nonce = quote(state_data.get("desktop_nonce") or "", safe="")
+        return RedirectResponse(
+            f"{redirect_target}#access_token={token}&token_type=bearer&desktop_nonce={desktop_nonce}"
+        )
     frontend_url = get_settings().frontend_url.rstrip("/")
     return RedirectResponse(f"{frontend_url}/auth/oidc/callback#access_token={token}&token_type=bearer")

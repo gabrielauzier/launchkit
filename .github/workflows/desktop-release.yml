@@ -19,7 +19,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # select-stack:begin node
+        # One build per architecture on a runner of that architecture: the packaged local backend
+        # carries the host's native argon2 addon, so an x64 app cannot be built on the arm64 runner.
+        # select-stack:end
+        # select-stack:begin python
+        #~ # One build per architecture on a runner of that architecture.
+        # select-stack:end
+        include:
+          - os: macos-latest
+            electron_args: --arm64
+          - os: macos-15-intel
+            electron_args: --x64
+          - os: windows-latest
+            electron_args: --x64
+          - os: ubuntu-latest
+            electron_args: --x64
 
     steps:
       - uses: actions/checkout@v7
@@ -29,9 +44,17 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          # select-stack:begin node
           cache-dependency-path: |
             frontend/package-lock.json
             desktop/package-lock.json
+            backend-node/package-lock.json
+          # select-stack:end
+          # select-stack:begin python
+          #~ cache-dependency-path: |
+          #~   frontend/package-lock.json
+          #~   desktop/package-lock.json
+          # select-stack:end
 
       - name: Check the tag matches the desktop version
         shell: bash
@@ -93,6 +116,13 @@ jobs:
           npm ci --prefix frontend
           npm ci --prefix desktop
 
+      # select-stack:begin node
+      # `npm run build:backend` bundles backend-node/src with esbuild: its packages must be there.
+      - name: Install the local backend's dependencies
+        shell: bash
+        run: npm ci --prefix backend-node
+      # select-stack:end
+
       - name: Build the app
         working-directory: desktop
         run: npm run build:all
@@ -111,7 +141,7 @@ jobs:
           WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
         run: >-
-          npx electron-builder --publish always
+          npx electron-builder ${{ matrix.electron_args }} --publish always
           -c.publish.provider=github
           -c.publish.owner="${LAUNCHKIT_DESKTOP_RELEASE_OWNER}"
           -c.publish.repo="${LAUNCHKIT_DESKTOP_RELEASE_REPO_NAME}"

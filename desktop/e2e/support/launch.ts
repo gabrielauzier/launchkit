@@ -13,9 +13,11 @@ export function electronBinary(): string {
 
 /** With `LAUNCHKIT_E2E_EXECUTABLE` set, the tests drive a packaged app instead of `out/`. */
 export function launchArgs(userDataDir: string): string[] {
+  // English, whatever the machine's language is: the specs read the main process's messages too.
   const userData = `--user-data-dir=${userDataDir}`
+  const lang = '--lang=en-US'
   // CI Linux runners cannot set up Chromium's SUID sandbox for an unpacked Electron.
-  const flags = process.env.CI && process.platform === 'linux' ? ['--no-sandbox', userData] : [userData]
+  const flags = process.env.CI && process.platform === 'linux' ? ['--no-sandbox', lang, userData] : [lang, userData]
   return process.env.LAUNCHKIT_E2E_EXECUTABLE ? flags : [MAIN_ENTRY, ...flags]
 }
 
@@ -42,12 +44,22 @@ export function newUserDataDir(config?: Record<string, unknown>): string {
   return dir
 }
 
-export async function launchApp(options: { userDataDir?: string; serverUrl?: string; keepWindowSize?: boolean } = {}): Promise<LaunchedApp> {
-  const userDataDir = options.userDataDir ?? newUserDataDir(options.serverUrl ? { serverUrl: options.serverUrl } : undefined)
+export async function launchApp(
+  options: {
+    userDataDir?: string
+    serverUrl?: string
+    config?: Record<string, unknown>
+    args?: string[]
+    env?: Record<string, string>
+    keepWindowSize?: boolean
+  } = {},
+): Promise<LaunchedApp> {
+  const userDataDir = options.userDataDir ?? newUserDataDir(options.config ?? (options.serverUrl ? { serverUrl: options.serverUrl } : undefined))
   const app = await electron.launch({
     executablePath: process.env.LAUNCHKIT_E2E_EXECUTABLE,
-    args: launchArgs(userDataDir),
+    args: [...launchArgs(userDataDir), ...(options.args ?? [])],
     cwd: DESKTOP_ROOT,
+    env: { ...(process.env as Record<string, string>), ...options.env },
   })
   launched.push(app)
   const page = await app.firstWindow()

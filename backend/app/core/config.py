@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     oidc_roles_claim: str = "groups"
     oidc_admin_roles: str = ""  # comma-separated provider roles/groups that grant launchkit admin
     oidc_workspace_role_map: str = ""  # JSON: {"provider-role": "owner|editor|viewer"}
+    # Comma-separated exact URLs the desktop app may ask the OIDC callback to
+    # return to (e.g. launchkit://auth/callback). Empty means no desktop redirect.
+    oidc_desktop_redirect: str = ""
 
     # Celery
     redis_url: str = "redis://localhost:6379/0"
@@ -91,6 +94,10 @@ class Settings(BaseSettings):
     # against its own version to show an "update available" banner. Empty
     # disables the check entirely (no request to GitHub is made).
     update_check_repo: str = ""
+
+    @property
+    def oidc_desktop_redirects(self) -> list[str]:
+        return [item.strip() for item in self.oidc_desktop_redirect.split(",") if item.strip()]
 
     @property
     def oidc_login_available(self) -> bool:

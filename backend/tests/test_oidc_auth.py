@@ -738,3 +738,98 @@ async def test_oidc_callback_registration_disabled_does_not_block_existing_email
     assert response.status_code == 307
     await session.refresh(test_user)
     assert test_user.oidc_subject == "linked-with-registration-disabled"
+
+
+DESKTOP_TARGET = "launchkit://auth/callback"
+
+
+def _patch_login(monkeypatch, fake_redis):
+    async def fake_discover():
+        return {"authorization_endpoint": "https://id.example.com/authorize"}
+
+    async def fake_get_redis():
+        return fake_redis
+
+    monkeypatch.setattr(oidc_auth, "get_redis", fake_get_redis)
+    monkeypatch.setattr(oidc_auth, "_discover", fake_discover)
+
+
+@pytest.mark.asyncio
+async def test_oidc_login_rejects_missing_or_short_desktop_nonce(
+    client: AsyncClient, clean_db, oidc_settings, monkeypatch
+):
+    oidc_settings.oidc_desktop_redirect = DESKTOP_TARGET
+    fake_redis = FakeRedis()
+    _patch_login(monkeypatch, fake_redis)
+
+    for query in (
+        {},
+        {"desktop_nonce": ""},
+        {"desktop_nonce": "x" * 31},
+        {"desktop_nonce": "x" * 129},
+    ):
+        response = await client.get(
+            "/api/auth/oidc/login",
+            params={"redirect_target": DESKTOP_TARGET, **query},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Invalid desktop_nonce"}
+        assert "location" not in response.headers
+    assert fake_redis.store == {}
+
+    ok = await client.get(
+        "/api/auth/oidc/login",
+        params={"redirect_target": DESKTOP_TARGET, "desktop_nonce": "x" * 32},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 307
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_returns_the_desktop_nonce_to_the_redirect_target(
+    client: AsyncClient, clean_db, oidc_settings, monkeypatch
+):
+    oidc_settings.oidc_desktop_redirect = DESKTOP_TARGET
+    fake_redis = FakeRedis()
+    nonce = "n" * 43
+    await fake_redis.set(
+        "oidc_state:state-desktop",
+        json.dumps(
+            {
+                "nonce": "nonce123",
+                "code_verifier": "v",
+                "redirect_target": DESKTOP_TARGET,
+                "desktop_nonce": nonce,
+            }
+        ),
+    )
+
+    async def fake_discover():
+        return {"issuer": "https://id.example.com"}
+
+    async def fake_exchange(discovery, code, code_verifier=""):
+        return {"id_token": "id-token", "access_token": "provider-token"}
+
+    async def fake_decode(discovery, id_token, nonce, access_token=""):
+        return {"sub": "desktop-sub", "email": "desktop@example.com", "email_verified": True}
+
+    async def fake_userinfo(discovery, access_token):
+        return {}
+
+    async def fake_get_redis():
+        return fake_redis
+
+    monkeypatch.setattr(oidc_auth, "get_redis", fake_get_redis)
+    monkeypatch.setattr(oidc_auth, "_discover", fake_discover)
+    monkeypatch.setattr(oidc_auth, "_exchange_code", fake_exchange)
+    monkeypatch.setattr(oidc_auth, "_decode_id_token", fake_decode)
+    monkeypatch.setattr(oidc_auth, "_fetch_userinfo", fake_userinfo)
+
+    response = await client.get(
+        "/api/auth/oidc/callback?code=abc&state=state-desktop", follow_redirects=False
+    )
+    assert response.status_code == 307
+    location = response.headers["location"]
+    assert location.startswith(f"{DESKTOP_TARGET}#access_token=")
+    assert location.endswith(f"&token_type=bearer&desktop_nonce={nonce}")

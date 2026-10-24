@@ -18,6 +18,19 @@ const api: LaunchkitApi = {
     }
   },
   installUpdate: () => ipcRenderer.invoke(IPC.installUpdate),
+  startSso: () => ipcRenderer.invoke(IPC.startSso),
+  // select-stack:begin node
+  getMode: () => ipcRenderer.invoke(IPC.getMode),
+  startLocal: () => ipcRenderer.invoke(IPC.startLocal),
+  openLogs: () => ipcRenderer.invoke(IPC.openLogs),
+  onExportState: (callback) => {
+    const listener = (_event: unknown, state: { exporting: boolean }) => callback(state)
+    ipcRenderer.on(IPC.exportState, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.exportState, listener)
+    }
+  },
+  // select-stack:end
 }
 
 contextBridge.exposeInMainWorld('launchkit', api)

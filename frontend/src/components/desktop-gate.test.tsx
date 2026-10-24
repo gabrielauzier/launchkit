@@ -5,7 +5,12 @@ import { DesktopGate } from './desktop-gate'
 import { i18n, renderWithProviders } from '@/test/utils'
 import type { LaunchkitApi } from '@/lib/platform'
 
-function installDesktopApi(serverUrl: string | null) {
+// select-stack:begin node
+function installDesktopApi(serverUrl: string | null, mode: 'remote' | 'local' | null = 'remote') {
+// select-stack:end
+// select-stack:begin python
+//~ function installDesktopApi(serverUrl: string | null) {
+// select-stack:end
   const api: LaunchkitApi = {
     isDesktop: true,
     platform: 'darwin',
@@ -15,6 +20,13 @@ function installDesktopApi(serverUrl: string | null) {
     openExternal: vi.fn(async () => {}),
     onUpdateAvailable: vi.fn(() => () => {}),
     installUpdate: vi.fn(async () => {}),
+    startSso: vi.fn(async () => {}),
+    // select-stack:begin node
+    getMode: vi.fn(async () => mode),
+    startLocal: vi.fn(async (): Promise<{ ok: boolean }> => ({ ok: true })),
+    openLogs: vi.fn(async () => {}),
+    onExportState: vi.fn(() => () => {}),
+    // select-stack:end
   }
   Object.defineProperty(window, 'launchkit', { value: api, configurable: true })
   return api
@@ -81,4 +93,50 @@ describe('desktop gate', () => {
     renderGate('/login')
     expect(await screen.findByText('login page')).toBeInTheDocument()
   })
+
+  // select-stack:begin node
+  it('shows the mode choice before anything else on first use', async () => {
+    for (const [language, connect, local] of [
+      ['en', 'Connect to a server', 'Use this computer'],
+      ['pt-BR', 'Conectar a um servidor', 'Usar neste computador'],
+    ] as const) {
+      await i18n.changeLanguage(language)
+      for (const route of ['/', '/setup', '/login']) {
+        installDesktopApi(null, null)
+        const { unmount } = renderGate(route)
+        expect(await screen.findByRole('button', { name: connect }), `${language} ${route}`).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: local })).toBeInTheDocument()
+        expect(screen.queryByText('setup page')).toBeNull()
+        expect(screen.queryByText('login page')).toBeNull()
+        unmount()
+      }
+    }
+  })
+
+  it('opens the mode choice on /mode even when a mode is set', async () => {
+    installDesktopApi(null, 'local')
+    renderGate('/mode')
+    expect(await screen.findByRole('button', { name: 'Use this computer' })).toBeInTheDocument()
+  })
+
+  it('starts the local backend before it renders the app in local mode', async () => {
+    const api = installDesktopApi(null, 'local')
+    let finish: (value: { ok: boolean }) => void = () => {}
+    vi.mocked(api.startLocal).mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    renderGate('/login')
+    expect(await screen.findByRole('progressbar')).toBeInTheDocument()
+    expect(screen.queryByText('login page')).toBeNull()
+    finish({ ok: true })
+    expect(await screen.findByText('login page')).toBeInTheDocument()
+  })
+
+  it('shows the failure and retries when the local backend does not start', async () => {
+    const api = installDesktopApi(null, 'local')
+    vi.mocked(api.startLocal).mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true })
+    const { user } = renderGate('/login')
+    expect(await screen.findByText('Could not start the local backend')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('login page')).toBeInTheDocument()
+  })
+  // select-stack:end
 })

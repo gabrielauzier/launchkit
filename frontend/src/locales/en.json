@@ -220,10 +220,43 @@
       "view": "View",
       "window": "Window",
       "help": "Help",
-      "documentation": "launchkit on GitHub"
+      "documentation": "launchkit on GitHub",
+      "exportData": "Export data…",
+      "importData": "Import data…"
     },
     "update": {
       "restart": "Restart to update to {{version}}"
+    },
+    "sso": {
+      "incomplete": "Sign-in did not complete"
+    },
+    "mode": {
+      "title": "Welcome to launchkit",
+      "description": "Choose where your data lives.",
+      "connect": "Connect to a server",
+      "local": "Use this computer",
+      "starting": "Starting the local backend…",
+      "failedTitle": "Could not start the local backend",
+      "failedDescription": "Your data was not changed. Try again, or open the logs to see what went wrong.",
+      "retry": "Try again",
+      "openLogs": "Open logs",
+      "journalUnreadable": "An interrupted data import could not be recovered because its record in the app data folder (import.journal.json) is unreadable. Open the logs for its location; your data was not changed."
+    },
+    "transfer": {
+      "exporting": "Exporting your data…",
+      "exportingHint": "The app is locked until the export finishes.",
+      "exportDone": "Export saved",
+      "exportFailed": "The export failed",
+      "importTitle": "Import data",
+      "importConfirm": "Import this file into this installation?",
+      "importAction": "Import",
+      "cancel": "Cancel",
+      "importDone": "Import finished",
+      "invalid": "Invalid export file",
+      "notNew": "Import is only available on a new installation",
+      "importFailed": "The import failed",
+      "cleanupWarning": "Some temporary files could not be removed; they are cleaned up the next time the app starts.",
+      "restart": "The import could not be undone cleanly. The app will restart to finish it safely."
     }
   },
   "files": {

@@ -220,10 +220,43 @@
       "view": "Exibir",
       "window": "Janela",
       "help": "Ajuda",
-      "documentation": "launchkit no GitHub"
+      "documentation": "launchkit no GitHub",
+      "exportData": "Exportar dados…",
+      "importData": "Importar dados…"
     },
     "update": {
       "restart": "Reiniciar para atualizar para {{version}}"
+    },
+    "sso": {
+      "incomplete": "O login não foi concluído"
+    },
+    "mode": {
+      "title": "Bem-vindo ao launchkit",
+      "description": "Escolha onde ficam os seus dados.",
+      "connect": "Conectar a um servidor",
+      "local": "Usar neste computador",
+      "starting": "Iniciando o backend local…",
+      "failedTitle": "Não foi possível iniciar o backend local",
+      "failedDescription": "Seus dados não foram alterados. Tente de novo ou abra os logs para ver o que houve.",
+      "retry": "Tentar de novo",
+      "openLogs": "Abrir logs",
+      "journalUnreadable": "Uma importação de dados interrompida não pôde ser recuperada porque o registro dela na pasta de dados do app (import.journal.json) está ilegível. Abra os logs para ver o local; seus dados não foram alterados."
+    },
+    "transfer": {
+      "exporting": "Exportando seus dados…",
+      "exportingHint": "O aplicativo fica bloqueado até a exportação terminar.",
+      "exportDone": "Exportação salva",
+      "exportFailed": "A exportação falhou",
+      "importTitle": "Importar dados",
+      "importConfirm": "Importar este arquivo nesta instalação?",
+      "importAction": "Importar",
+      "cancel": "Cancelar",
+      "importDone": "Importação concluída",
+      "invalid": "Arquivo de exportação inválido",
+      "notNew": "A importação só está disponível em uma instalação nova",
+      "importFailed": "A importação falhou",
+      "cleanupWarning": "Alguns arquivos temporários não puderam ser removidos; eles são limpos na próxima vez que o app iniciar.",
+      "restart": "A importação não pôde ser desfeita por completo. O app vai reiniciar para terminar com segurança."
     }
   },
   "files": {

@@ -1,6 +1,7 @@
 import type { MenuItemConstructorOptions } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { buildMenuTemplate, menuStrings } from './menu'
+import { createSwitchServer } from './switch-server'
 
 function fileMenu(template: MenuItemConstructorOptions[], label: string) {
   const file = template.find((item) => item.label === label)
@@ -64,4 +65,45 @@ describe('application menu', () => {
     expect(help[0].label).toBe('launchkit on GitHub')
     expect(onOpenDocs).toHaveBeenCalledTimes(1)
   })
+
+  // select-stack:begin node
+  it('switch server opens the mode choice in local mode and the connect screen in remote mode', async () => {
+    const calls: string[] = []
+    let mode: 'remote' | 'local' | null = 'local'
+    const switchServer = createSwitchServer({
+      getMode: () => mode,
+      stopLocal: async () => {
+        calls.push('stop')
+      },
+      setMode: (value) => {
+        calls.push(`mode:${value}`)
+        mode = value
+      },
+      navigate: (url) => calls.push(`go:${url}`),
+    })
+    const template = buildMenuTemplate({ isMac: false, strings: menuStrings('en'), onSwitchServer: () => void switchServer() })
+    const item = fileMenu(template, 'File').find((entry) => entry.id === 'switch-server')
+
+    ;(item?.click as () => void)()
+    await vi.waitFor(() => expect(calls).toContain('go:app://launchkit/mode'))
+    // The backend stops (cleanly) before the choice opens; the data stays where it is.
+    expect(calls).toEqual(['stop', 'mode:null', 'go:app://launchkit/mode'])
+
+    calls.length = 0
+    mode = 'remote'
+    ;(item?.click as () => void)()
+    await vi.waitFor(() => expect(calls).toContain('go:app://launchkit/connect'))
+    expect(calls).toEqual(['go:app://launchkit/connect'])
+  })
+  // select-stack:end
+  // select-stack:begin python
+  //~ it('switch server opens the connect screen', async () => {
+  //~   const calls: string[] = []
+  //~   const switchServer = createSwitchServer({ navigate: (url) => calls.push(`go:${url}`) })
+  //~   const template = buildMenuTemplate({ isMac: false, strings: menuStrings('en'), onSwitchServer: () => void switchServer() })
+  //~   const item = fileMenu(template, 'File').find((entry) => entry.id === 'switch-server')
+  //~   ;(item?.click as () => void)()
+  //~   await vi.waitFor(() => expect(calls).toEqual(['go:app://launchkit/connect']))
+  //~ })
+  // select-stack:end
 })

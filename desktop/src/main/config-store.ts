@@ -9,6 +9,8 @@ export interface Bounds {
   height: number
 }
 
+export type Mode = 'remote' | 'local'
+
 export function isBounds(value: unknown): value is Bounds {
   if (value === null || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>
@@ -24,7 +26,7 @@ function read(file: string): Config {
   }
 }
 
-/** `userData/config.json`: the server URL and the window bounds. */
+/** `userData/config.json`: the mode, the server URL and the window bounds. */
 export function createConfigStore(file: string) {
   function update(patch: Config) {
     const next = { ...read(file), ...patch }
@@ -41,6 +43,19 @@ export function createConfigStore(file: string) {
     },
     setServerUrl(url: string) {
       update({ serverUrl: url })
+    },
+    /**
+     * `mode` as saved, `null` while the choice is open (first use, or reopened by "switch server").
+     * An install from before modes existed has a server and no `mode`: it is remote.
+     */
+    getMode(): Mode | null {
+      const config = read(file)
+      if (config.mode === 'remote' || config.mode === 'local') return config.mode
+      if (config.mode === null) return null
+      return typeof config.serverUrl === 'string' && config.serverUrl !== '' ? 'remote' : null
+    },
+    setMode(mode: Mode | null) {
+      update({ mode })
     },
     getBounds(): Bounds | null {
       const value = read(file).bounds
