@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stored_file import StoredFileRecord
@@ -284,7 +285,13 @@ async def add_member(
         invited_by_user_id=invited_by_user_id,
     )
     session.add(member)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Two concurrent invites both passed the check above; `uq_workspace_member`
+        # let one through and refuses the other.
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="User is already a member")
     return member
 
 

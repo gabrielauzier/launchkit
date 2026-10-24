@@ -57,6 +57,10 @@ class CIChangesTest(unittest.TestCase):
                         GITHUB_SHA=self.git("rev-parse", "HEAD"))
 
     def select(self, expected, overrides=None, event_text=None):
+        # Older cases list the three original outputs; the Node backend suite runs only when
+        # everything does, or when a case says so with a fourth value.
+        if len(expected) == 3:
+            expected = (*expected, "true" if expected == ("true",) * 3 else "false")
         event_file = Path(self.temp.name) / "event.json"
         event_file.write_text(json.dumps(self.event) if event_text is None else event_text)
         output_file = Path(self.temp.name) / "output"
@@ -67,7 +71,8 @@ class CIChangesTest(unittest.TestCase):
                                 env=env, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output_file.read_text(),
-                         f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n")
+                         f"run_backend={expected[0]}\nrun_frontend={expected[1]}\nrun_helm={expected[2]}\n"
+                         f"run_backend_node={expected[3]}\n")
 
     def test_component_docs_and_shared_paths(self):
         cases = [
@@ -87,6 +92,26 @@ class CIChangesTest(unittest.TestCase):
             with self.subTest(files=files):
                 self.merge(files)
                 self.select(expected)
+
+    def test_backend_node_only(self):
+        for name in ("backend-node/src/app.ts", "backend-node/README.md", "backend-node/package.json"):
+            with self.subTest(name=name):
+                self.merge({name: "code"})
+                self.select(("false", "false", "false", "true"))
+        self.merge({"backend-node/src/app.ts": "code", "frontend/new.ts": "code"})
+        self.select(("false", "true", "false", "true"))
+
+    def test_contracts_select_both_backends(self):
+        for name in ("contracts/tests/login.test.ts", "contracts/openapi.json"):
+            with self.subTest(name=name):
+                self.merge({name: "contract"})
+                self.select(("true", "false", "false", "true"))
+
+    def test_unknown_path_still_runs_everything(self):
+        for name in ("new-package/code.py", "unexpected.md", "docker-compose.yml"):
+            with self.subTest(name=name):
+                self.merge({name: "shared"})
+                self.select(("true", "true", "true", "true"))
 
     def test_deleted_and_renamed_files(self):
         for old, new, expected in (
