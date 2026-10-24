@@ -111,15 +111,17 @@ describe('desktop-release workflow', () => {
     const first = steps.findIndex((step) => step.run && /build:backend|build:all|package:|npm test|electron-builder/.test(step.run))
     expect(first, 'a build step').toBeGreaterThan(-1)
     const setup = steps.find((step) => step.uses?.startsWith('actions/setup-node'))
-    const installs = steps.flatMap((step, index) => (step.run && /npm ci --prefix backend-node/.test(step.run) ? [index] : []))
     // select-stack:begin node
+    const installs = steps.flatMap((step, index) => (step.run && /npm ci --prefix backend-node/.test(step.run) ? [index] : []))
     expect(installs, 'npm ci --prefix backend-node').toHaveLength(1)
     expect(installs[0]).toBeLessThan(first)
     expect(setup?.with?.['cache-dependency-path']).toContain('backend-node/package-lock.json')
     // select-stack:end
     // select-stack:begin python
+    //~ // A remote client has no local backend to install.
+    //~ const installs = steps.flatMap((step, index) => (step.run && /npm ci --prefix \S*backend/.test(step.run) ? [index] : []))
     //~ expect(installs).toEqual([])
-    //~ expect(setup?.with?.['cache-dependency-path']).not.toContain('backend-node')
+    //~ expect(setup?.with?.['cache-dependency-path']?.split('\n')).toEqual(['frontend/package-lock.json', 'desktop/package-lock.json'])
     // select-stack:end
   })
 })
