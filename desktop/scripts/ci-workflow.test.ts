@@ -103,7 +103,7 @@ describe('ci workflow', () => {
       //~ // A remote client has no local backend to install.
       //~ const installs = job.steps.flatMap((step, index) => (step.run && /npm ci --prefix \S*backend/.test(step.run) ? [index] : []))
       //~ expect(installs).toEqual([])
-      //~ expect(setup?.with?.['cache-dependency-path']?.split('\n')).toEqual(['frontend/package-lock.json', 'desktop/package-lock.json'])
+      //~ expect(setup?.with?.['cache-dependency-path']?.trim().split('\n')).toEqual(['frontend/package-lock.json', 'desktop/package-lock.json'])
       // select-stack:end
     })
   }
