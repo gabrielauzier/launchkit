@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { workspaces as workspacesApi } from '@/lib/api'
 import { resolveSupportedLang, SUPPORTED_LANGS } from '@/lib/i18n'
+import { isDesktop } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -246,13 +247,16 @@ export function WorkspaceSwitcher({
               {t(localAuthEnabled ? 'auth.twoFactorTitle' : 'auth.disable2fa')}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onClick={onPasskeys}
-            className="flex items-center gap-2"
-          >
-            <Fingerprint size={14} />
-            {t('auth.passkeysTitle')}
-          </DropdownMenuItem>
+          {/* Passkeys are bound to the server origin, which the desktop app cannot match. */}
+          {!isDesktop() && (
+            <DropdownMenuItem
+              onClick={onPasskeys}
+              className="flex items-center gap-2"
+            >
+              <Fingerprint size={14} />
+              {t('auth.passkeysTitle')}
+            </DropdownMenuItem>
+          )}
           {onUpdateAvailable && (
             <DropdownMenuItem
               onClick={onUpdateAvailable}

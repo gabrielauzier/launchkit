@@ -10,6 +10,7 @@ import { SidebarStateProvider } from '@/contexts/sidebar-state-provider'
 import { ProtectedRoute } from '@/components/protected-route'
 import { AdminRoute } from '@/components/admin-route'
 import { AppLayout } from '@/components/app-layout'
+import { DesktopGate } from '@/components/desktop-gate'
 
 const SetupPage = lazy(() => import('@/pages/setup'))
 const LoginPage = lazy(() => import('@/pages/login'))
@@ -44,34 +45,36 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BrowserRouter>
-            <AuthProvider>
-              <WorkspaceProvider>
-                <Suspense fallback={<LoadingFallback />}>
-                  <Routes>
-                    <Route path="/setup" element={<SetupPage />} />
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/auth/oidc/callback" element={<OIDCCallbackPage />} />
-                    <Route path="/register" element={<RegisterPage />} />
-                    <Route
-                      element={
-                        <ProtectedRoute>
-                          <SidebarStateProvider>
-                            <AppLayout />
-                          </SidebarStateProvider>
-                        </ProtectedRoute>
-                      }
-                    >
-                      <Route path="/" element={<DashboardPage />} />
-                      <Route path="/files" element={<FilesPage />} />
-                      <Route path="/components" element={<ComponentsShowcasePage />} />
-                      <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
-                      <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
-                    </Route>
-                  </Routes>
-                </Suspense>
-                <Toaster />
-              </WorkspaceProvider>
-            </AuthProvider>
+            <DesktopGate>
+              <AuthProvider>
+                <WorkspaceProvider>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <Routes>
+                      <Route path="/setup" element={<SetupPage />} />
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route path="/auth/oidc/callback" element={<OIDCCallbackPage />} />
+                      <Route path="/register" element={<RegisterPage />} />
+                      <Route
+                        element={
+                          <ProtectedRoute>
+                            <SidebarStateProvider>
+                              <AppLayout />
+                            </SidebarStateProvider>
+                          </ProtectedRoute>
+                        }
+                      >
+                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/files" element={<FilesPage />} />
+                        <Route path="/components" element={<ComponentsShowcasePage />} />
+                        <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
+                        <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
+                      </Route>
+                    </Routes>
+                  </Suspense>
+                  <Toaster />
+                </WorkspaceProvider>
+              </AuthProvider>
+            </DesktopGate>
           </BrowserRouter>
         </TooltipProvider>
       </QueryClientProvider>

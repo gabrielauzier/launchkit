@@ -201,6 +201,31 @@
     "greeting": "Bem-vindo(a), {{name}}",
     "workspaceHint": "Nome, membros, papéis e fuso horário"
   },
+  "desktop": {
+    "connect": {
+      "title": "Conectar a um servidor",
+      "description": "Informe o endereço do seu servidor launchkit.",
+      "urlLabel": "URL do servidor",
+      "urlPlaceholder": "https://launchkit.exemplo.com",
+      "confirm": "Conectar",
+      "checking": "Verificando…",
+      "unreachable": "Não foi possível conectar ao servidor",
+      "invalidUrl": "Informe uma URL começando com http:// ou https://",
+      "insecureWarning": "Este servidor não usa HTTPS, então sua senha e seus dados trafegam sem criptografia. Clique em Conectar novamente para continuar mesmo assim."
+    },
+    "menu": {
+      "file": "Arquivo",
+      "switchServer": "Trocar de servidor",
+      "edit": "Editar",
+      "view": "Exibir",
+      "window": "Janela",
+      "help": "Ajuda",
+      "documentation": "launchkit no GitHub"
+    },
+    "update": {
+      "restart": "Reiniciar para atualizar para {{version}}"
+    }
+  },
   "files": {
     "deleteDescription": "\"{{name}}\" será removido permanentemente.",
     "deleteTitle": "Excluir arquivo?",

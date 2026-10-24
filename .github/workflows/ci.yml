@@ -584,3 +584,129 @@ jobs:
           ONLY_STACK: ${{ matrix.stack }}
         run: node --test --test-name-pattern='^C14 ' scripts/stack/select-stack.test.mjs
   # select-stack:end
+
+  desktop-checks:
+    name: Desktop Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect desktop-relevant changes
+        id: desktop-changes
+        working-directory: .
+        run: python3 .github/ci/changes.py
+
+      - name: Skip desktop checks
+        if: steps.desktop-changes.outputs.run_desktop == 'false'
+        run: echo "No desktop-relevant changes; skipping desktop checks."
+
+      - name: Set up Node.js
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install dependencies
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: |
+          npm ci --prefix ../frontend
+          npm ci
+
+      - name: Lint
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run lint
+
+      - name: Type check
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run typecheck
+
+      # Unsigned: no certificates here, so the app is built and packaged only
+      # to prove it builds (and for the fuse checks in the test run below).
+      - name: Build the unsigned app
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run package:dir
+
+      - name: Run tests
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm test
+
+      # The web build must not reach for the desktop bridge (window.launchkit).
+      - name: Check the web bundle
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run check:web-bundle
+
+  desktop-e2e:
+    name: Desktop E2E (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Detect desktop-relevant changes
+        id: desktop-changes
+        shell: bash
+        working-directory: .
+        run: python3 .github/ci/changes.py
+
+      - name: Skip desktop E2E
+        if: steps.desktop-changes.outputs.run_desktop == 'false'
+        shell: bash
+        run: echo "No desktop-relevant changes; skipping desktop E2E."
+
+      - name: Set up Node.js
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install dependencies
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        shell: bash
+        run: |
+          npm ci --prefix ../frontend
+          npm ci
+
+      - name: Build the app
+        if: steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npm run build:all
+
+      # Linux has no display on the runner; the app needs one to open a window.
+      - name: Run Playwright tests (Linux)
+        if: runner.os == 'Linux' && steps.desktop-changes.outputs.run_desktop != 'false'
+        run: xvfb-run --auto-servernum npx playwright test
+
+      - name: Run Playwright tests
+        if: runner.os != 'Linux' && steps.desktop-changes.outputs.run_desktop != 'false'
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: ${{ failure() && steps.desktop-changes.outputs.run_desktop != 'false' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-e2e-${{ runner.os }}
+          path: |
+            desktop/test-results
+            desktop/playwright-report

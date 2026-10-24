@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import type { AxiosError } from 'axios'
+import { isDesktop } from '@/lib/platform'
 import { isServerUnreachable } from '@/lib/auth-errors'
 import { resolveLocalAuthEnabled } from '@/lib/auth-config-utils'
 import { useTheme } from 'next-themes'
@@ -49,7 +50,8 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
-  const [passkeySupported] = useState(isPasskeySupported)
+  // Passkeys are bound to the server's origin; the desktop app lives on app://launchkit.
+  const [passkeySupported] = useState(() => !isDesktop() && isPasskeySupported())
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
   const [oidcConfig, setOidcConfig] = useState<OIDCConfig | null>(null)
   const [oidcConfigFailed, setOidcConfigFailed] = useState(false)
@@ -178,7 +180,9 @@ export default function LoginPage() {
     try {
       const result = await login(email, password)
       if (result.requires_2fa) {
-        const methods: Array<'totp' | 'passkey'> = result.available_methods?.length ? result.available_methods : ['totp']
+        const offered: Array<'totp' | 'passkey'> = result.available_methods?.length ? result.available_methods : ['totp']
+        const methods = isDesktop() ? offered.filter((method) => method !== 'passkey') : offered
+        if (methods.length === 0) methods.push('totp')
         setRequires2fa(true)
         setTempToken(result.temp_token ?? '')
         setAvailable2faMethods(methods)

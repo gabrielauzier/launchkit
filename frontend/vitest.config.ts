@@ -12,6 +12,9 @@ export default defineConfig({
     // Without it here, anything importing lib/build-info throws on import,
     // which takes the whole app shell down with it.
     __APP_VERSION__: JSON.stringify('0.0.0-test'),
+    // Tests exercise the desktop code paths; whether they run is decided by
+    // `window.launchkit?.isDesktop`, which is unset unless a test sets it.
+    __DESKTOP_BUILD__: true,
   },
   resolve: {
     alias: [
