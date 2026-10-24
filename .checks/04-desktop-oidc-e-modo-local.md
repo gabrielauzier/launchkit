@@ -449,3 +449,10 @@ Corte (slices inteiras, nunca no meio):
 - Árvore completa e árvore Node: sem mudança de comportamento (desktop 178 unitários + 51 de Playwright, frontend 483; a árvore Node de antes e de depois diferem só em `ipc.test.ts`, que agora julga o código sem os comentários `//~`).
 - `.github/`: `ci.yml` e `desktop-release.yml` ganharam só blocos de comentário `node`/`python` (os jobs não mudam); `changes.py` e `test_changes.py` ganharam blocos para que `run_desktop` não dependa de `backend_node` na árvore Python.
 
+
+### CI do PR #4 (build do backend embutido num runner limpo)
+
+- Causa: `desktop-checks`, `desktop-e2e` e `desktop-release` só faziam `npm ci` em `frontend/` e `desktop/`; sem `backend-node/node_modules` o `esbuild` do `build:backend` não resolve `drizzle-orm`, `@fastify/*` etc. Localmente as worktrees já tinham `backend-node/node_modules`, o que escondia a falha.
+- Reprodução fiel: uma cópia (`git clone` em `/Volumes/MacOnlySSD`) sem nenhum `node_modules`, `npm ci` só onde o workflow faz, `lint`, `typecheck`, `package:dir`, `CI=1 npm test` e `check:web-bundle` (job checks) ou `npm run test:e2e` (job e2e). Vermelho em `b39b990`: `Could not resolve "drizzle-orm"` (51 ocorrências no e2e). Verde na correção: checks com 184 testes unitários e `check:web-bundle` limpo; e2e com 51 specs de Playwright verdes.
+- Correção: passo `npm ci` em `backend-node/` antes de qualquer build ou teste nos três workflows, e `backend-node/package-lock.json` no `cache-dependency-path`, em blocos `node` (a árvore Python não os tem). Testes de forma novos (vermelhos em `b39b990`): `desktop-checks installs the packages the build bundles...`, o mesmo para `desktop-e2e` (`ci-workflow.test.ts`) e `installs the packages the build bundles before the app is built` (`release-workflow.test.ts`), com variante `python` (nenhum passo, cache sem a pasta do backend). O C14 do desktop da árvore Python pegou um erro das variantes (`split` com linha vazia) e ficou verde depois.
+- Só o runner prova: o cache do `setup-node` com o lockfile novo, o `npm ci` no Windows e no macOS, `xvfb-run` no Linux e o job de release (sem segredos aqui).
