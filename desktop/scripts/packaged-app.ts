@@ -15,3 +15,14 @@ export function findPackagedApp(release: string): string | null {
   }
   return null
 }
+
+/** The packaged app's executable and its `resources/` folder (where extraResources land), per operating system. */
+export function packagedLayout(release: string): { executable: string; resources: string } | null {
+  const app = findPackagedApp(release)
+  if (!app) return null
+  if (app.endsWith('.app')) {
+    const contents = path.join(app, 'Contents')
+    return { executable: path.join(contents, 'MacOS', 'launchkit'), resources: path.join(contents, 'Resources') }
+  }
+  return { executable: app, resources: path.join(path.dirname(app), 'resources') }
+}

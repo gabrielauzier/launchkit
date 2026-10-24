@@ -3,25 +3,11 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { packagedLayout } from './packaged-app'
 
 const release = path.resolve(__dirname, '..', 'release')
 
-/** The unpacked app that `electron-builder --dir` leaves in release/: its executable and its resources folder. */
-function packaged(): { executable: string; resources: string } | null {
-  if (!existsSync(release)) return null
-  for (const dir of readdirSync(release)) {
-    const base = path.join(release, dir)
-    if (dir.startsWith('mac') && existsSync(path.join(base, 'launchkit.app'))) {
-      const app = path.join(base, 'launchkit.app', 'Contents')
-      return { executable: path.join(app, 'MacOS', 'launchkit'), resources: path.join(app, 'Resources') }
-    }
-    if (dir === 'linux-unpacked' && existsSync(path.join(base, 'launchkit'))) return { executable: path.join(base, 'launchkit'), resources: path.join(base, 'resources') }
-    if (dir === 'win-unpacked' && existsSync(path.join(base, 'launchkit.exe'))) return { executable: path.join(base, 'launchkit.exe'), resources: path.join(base, 'resources') }
-  }
-  return null
-}
-
-const app = packaged()
+const app = packagedLayout(release)
 
 /** Without a packaged app a local run skips (run `npm run package:dir`); CI must have built one. */
 function requireApp(context: { skip: () => never }): { executable: string; resources: string } {

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { findPackagedApp } from './packaged-app'
+import { findPackagedApp, packagedLayout } from './packaged-app'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -33,5 +33,32 @@ describe('findPackagedApp', () => {
   it('returns null when release/ is missing or holds no app', () => {
     expect(findPackagedApp(path.join(tmpdir(), 'launchkit-does-not-exist'))).toBeNull()
     expect(findPackagedApp(releaseWith('linux-unpacked', 'other'))).toBeNull()
+  })
+})
+
+describe('packagedLayout', () => {
+  it('gives the Linux executable (named after the npm package) and the resources folder beside it', () => {
+    const release = releaseWith('linux-unpacked', 'launchkit-desktop')
+    expect(packagedLayout(release)).toEqual({
+      executable: path.join(release, 'linux-unpacked', 'launchkit-desktop'),
+      resources: path.join(release, 'linux-unpacked', 'resources'),
+    })
+  })
+
+  it('gives the macOS executable and Resources inside the bundle, and the Windows executable with resources beside it', () => {
+    const mac = releaseWith('mac-arm64', 'launchkit.app')
+    expect(packagedLayout(mac)).toEqual({
+      executable: path.join(mac, 'mac-arm64', 'launchkit.app', 'Contents', 'MacOS', 'launchkit'),
+      resources: path.join(mac, 'mac-arm64', 'launchkit.app', 'Contents', 'Resources'),
+    })
+    const win = releaseWith('win-unpacked', 'launchkit.exe')
+    expect(packagedLayout(win)).toEqual({
+      executable: path.join(win, 'win-unpacked', 'launchkit.exe'),
+      resources: path.join(win, 'win-unpacked', 'resources'),
+    })
+  })
+
+  it('is null without an app', () => {
+    expect(packagedLayout(path.join(tmpdir(), 'launchkit-does-not-exist'))).toBeNull()
   })
 })
